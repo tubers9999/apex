@@ -17,7 +17,7 @@ jobs:
   build-apk:
     name: Build & Release Android ARM64 APK
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -49,11 +49,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang llvm libclang-dev pkg-config cmake ninja-build zip
 
-      - name: Build ARM64 Shared Library
+      - name: Build Full ARM64 Game Engine
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          cargo ndk -t arm64-v8a build --package horizon-client-input --release
+          cargo ndk -t arm64-v8a build --package horizon-client-lib --no-default-features --release
 
       - name: Package and Sign APK
         run: |
@@ -67,8 +67,8 @@ jobs:
 
           # 2. Add ARM64 native library into lib/arm64-v8a/
           mkdir -p lib/arm64-v8a
-          cp target/aarch64-linux-android/release/libhorizon_client_input.so lib/arm64-v8a/
-          zip -u base.apk lib/arm64-v8a/libhorizon_client_input.so
+          cp target/aarch64-linux-android/release/libhorizon_client_lib.so lib/arm64-v8a/
+          zip -u base.apk lib/arm64-v8a/libhorizon_client_lib.so
 
           # 3. Zipalign APK
           $BUILD_TOOLS/zipalign -v -p 4 base.apk horizon-unaligned.apk
@@ -77,7 +77,7 @@ jobs:
           keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=RedGlitchX,O=RedGlitchX,C=US"
           $BUILD_TOOLS/apksigner sign --ks debug.keystore --ks-pass pass:android --out horizon-android-v0.1-arm64.apk horizon-unaligned.apk
 
-          echo "APK successfully built and signed: horizon-android-v0.1-arm64.apk"
+          echo "Full Game APK successfully built and signed: horizon-android-v0.1-arm64.apk"
           ls -lh horizon-android-v0.1-arm64.apk
 
       - name: Upload Artifact
@@ -91,14 +91,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cat << 'EOF' > release_notes.md
-          ### 🎮 Horizon Android v0.1 (ARM64) - Initial Release
+          ### 🎮 Horizon Android v0.1 (ARM64) - Full Client Engine
 
-          Port of Minecraft 26.3 Rust client to Android ARM64 by **RedGlitchX**.
+          Full Minecraft 26.3 Rust engine ported to Android ARM64 by **RedGlitchX**.
 
-          #### 📱 Features in v0.1:
+          #### 📱 Features:
+          - **Full Engine Inclusion:** Complete 3D renderer, world simulation, and game client.
           - **Pojav / Mojo-style Touch Controls:** On-screen virtual D-Pad, Jump, Sneak lock, Attack, Use, Inventory, Chat, Pause, F3, and F5 buttons.
-          - **Direct Engine Integration:** Rust input layer with full touch mapping.
-          - **ARM64 Native Engine:** Built for `aarch64-linux-android` devices.
+          - **App Name:** Horizon Android.
+          - **Native ARM64:** Built for `aarch64-linux-android` devices.
 
           #### 📥 Installation:
           Download **horizon-android-v0.1-arm64.apk** below and install it on your Android device.

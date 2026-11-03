@@ -18,7 +18,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="Horizon RedGlitchX"
+        android:label="Horizon Android"
         android:hasCode="false">
         <activity
             android:name="android.app.NativeActivity"
@@ -27,7 +27,7 @@
             android:screenOrientation="sensorLandscape">
             <meta-data
                 android:name="android.app.lib_name"
-                android:value="horizon_client_input" />
+                android:value="horizon_client_lib" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

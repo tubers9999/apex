@@ -11,6 +11,10 @@ description = "Reusable client systems, control tool and parity probes"
 
 [lib]
 path = "../horizon-client/src/client_lib.rs"
+crate-type = ["lib", "cdylib"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", features = ["native-activity"] }
 
 [dependencies]
 horizon-assets = { path = "../horizon-assets" }

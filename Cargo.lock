@@ -1397,6 +1397,7 @@ name = "horizon-client-lib"
 version = "0.1.0"
 dependencies = [
  "ab_glyph",
+ "android-activity",
  "bytemuck",
  "chrono",
  "flate2",
