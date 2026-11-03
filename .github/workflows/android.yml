@@ -90,19 +90,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cat << 'EOF' > release_notes.md
+          ### 🎮 Horizon Android v0.1 (ARM64) - Initial Release
+
+          Port of Minecraft 26.3 Rust client to Android ARM64 by **RedGlitchX**.
+
+          #### 📱 Features in v0.1:
+          - **Pojav / Mojo-style Touch Controls:** On-screen virtual D-Pad, Jump, Sneak lock, Attack, Use, Inventory, Chat, Pause, F3, and F5 buttons.
+          - **Direct Engine Integration:** Rust input layer with full touch mapping.
+          - **ARM64 Native Engine:** Built for `aarch64-linux-android` devices.
+
+          #### 📥 Installation:
+          Download **horizon-android-v0.1-arm64.apk** below and install it on your Android device.
+          EOF
+
           gh release delete v0.1 -y || true
           git tag -d v0.1 2>/dev/null || true
           git push origin :refs/tags/v0.1 2>/dev/null || true
           gh release create v0.1 horizon-android-v0.1-arm64.apk \
             --title "Horizon Android v0.1 (ARM64) by RedGlitchX" \
-            --notes "### 🎮 Horizon Android v0.1 (ARM64) - Initial Release
-
-Port of Minecraft 26.3 Rust client to Android ARM64 by **RedGlitchX**.
-
-#### 📱 Features in v0.1:
-- **Pojav / Mojo-style Touch Controls:** On-screen virtual D-Pad, Jump, Sneak lock, Attack, Use, Inventory, Chat, Pause, F3, and F5 buttons.
-- **Direct Engine Integration:** Rust input layer with full touch mapping.
-- **ARM64 Native Engine:** Built for \`aarch64-linux-android\` devices.
-
-#### 📥 Installation:
-Download **horizon-android-v0.1-arm64.apk** below and install it on your Android device."
+            --notes-file release_notes.md
