@@ -53,9 +53,11 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          cargo ndk -t arm64-v8a build --package horizon-client --no-default-features --release
+          cargo ndk -t arm64-v8a build --package horizon-client --lib --no-default-features --release
 
       - name: Package and Sign APK
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
           PLATFORM=$(ls -d $ANDROID_HOME/platforms/* | sort -V | tail -n 1)/android.jar
@@ -68,6 +70,7 @@ jobs:
           # 2. Add ARM64 native library into lib/arm64-v8a/
           mkdir -p lib/arm64-v8a
           cp target/aarch64-linux-android/release/libhorizon_client.so lib/arm64-v8a/
+          $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-unneeded lib/arm64-v8a/libhorizon_client.so || true
           zip -u base.apk lib/arm64-v8a/libhorizon_client.so
 
           # 3. Zipalign APK

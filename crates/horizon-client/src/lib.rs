@@ -10,10 +10,6 @@ pub mod game;
 pub mod mod_api;
 
 #[cfg(target_os = "android")]
-#[global_allocator]
-static ALLOCATOR: std::alloc::System = std::alloc::System;
-
-#[cfg(target_os = "android")]
 pub static ANDROID_APP: std::sync::OnceLock<android_activity::AndroidApp> = std::sync::OnceLock::new();
 
 #[cfg(target_os = "android")]

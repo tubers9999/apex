@@ -19,6 +19,7 @@
     <application
         android:allowBackup="true"
         android:label="Horizon Android"
+        android:extractNativeLibs="true"
         android:hasCode="false">
         <activity
             android:name="android.app.NativeActivity"
