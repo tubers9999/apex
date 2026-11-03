@@ -1,7 +1,8 @@
 //! Gameplay and startup, above the reusable client library.
 // No `#![recursion_limit]` or other inner attribute horizon-mixins doesn't know here: the
 // launcher's horizon-mixins then rejects every native mod targeting this crate (#8169).
-#![forbid(unsafe_code)]
+#![cfg_attr(not(target_os = "android"), forbid(unsafe_code))]
+#![cfg_attr(target_os = "android", allow(unsafe_code))]
 extern crate self as horizon_client;
 pub use horizon_client_lib::*;
 pub mod entry;
@@ -16,7 +17,7 @@ static ALLOCATOR: std::alloc::System = std::alloc::System;
 pub static ANDROID_APP: std::sync::OnceLock<android_activity::AndroidApp> = std::sync::OnceLock::new();
 
 #[cfg(target_os = "android")]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn android_main(app: android_activity::AndroidApp) {
     let _ = ANDROID_APP.set(app.clone());
     let internal_path = app
