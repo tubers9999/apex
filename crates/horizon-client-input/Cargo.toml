@@ -6,6 +6,9 @@ license.workspace = true
 rust-version = "1.90"
 description = "The client's input layer: key bindings and their names, mouse, controllers, clipboard and window options"
 
+[lib]
+crate-type = ["lib", "cdylib"]
+
 [dependencies]
 horizon-client-core = { path = "../horizon-client-core" }
 winit = "0.30.13"

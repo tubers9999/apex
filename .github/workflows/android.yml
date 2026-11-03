@@ -5,20 +5,17 @@ on:
   push:
     branches:
       - main
-      - master
     paths:
       - 'crates/**'
+      - 'packaging/android/**'
       - '.github/workflows/android.yml'
-  pull_request:
-    branches:
-      - main
 
 permissions:
   contents: write
 
 jobs:
-  build-android:
-    name: Build Android ARM64 APK
+  build-apk:
+    name: Build & Release Android ARM64 APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -33,6 +30,7 @@ jobs:
           java-version: '17'
 
       - name: Set up Android NDK
+        id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26d
@@ -43,39 +41,68 @@ jobs:
         with:
           targets: aarch64-linux-android
 
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-android-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-android-
-
       - name: Install cargo-ndk
-        run: |
-          cargo install cargo-ndk || true
+        run: cargo install cargo-ndk
 
-      - name: Install cross-compilation tools
+      - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm libclang-dev pkg-config cmake ninja-build
+          sudo apt-get install -y clang llvm libclang-dev pkg-config cmake ninja-build zip
 
-      - name: Build Android ARM64 Libraries
+      - name: Build ARM64 Shared Library
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           cargo ndk -t arm64-v8a build --package horizon-client-input --release
 
-      - name: Upload Build Artifacts
+      - name: Package and Sign APK
+        run: |
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+          PLATFORM=$(ls -d $ANDROID_HOME/platforms/* | sort -V | tail -n 1)/android.jar
+          echo "Using Build-Tools: $BUILD_TOOLS"
+          echo "Using Platform: $PLATFORM"
+
+          # 1. Package resources into base APK
+          $BUILD_TOOLS/aapt package -F base.apk -M packaging/android/AndroidManifest.xml -I $PLATFORM -f
+
+          # 2. Add ARM64 native library into lib/arm64-v8a/
+          mkdir -p lib/arm64-v8a
+          cp target/aarch64-linux-android/release/libhorizon_client_input.so lib/arm64-v8a/
+          zip -u base.apk lib/arm64-v8a/libhorizon_client_input.so
+
+          # 3. Zipalign APK
+          $BUILD_TOOLS/zipalign -v -p 4 base.apk horizon-unaligned.apk
+
+          # 4. Generate debug keystore and sign APK
+          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=RedGlitchX,O=RedGlitchX,C=US"
+          $BUILD_TOOLS/apksigner sign --ks debug.keystore --ks-pass pass:android --out horizon-android-v0.1-arm64.apk horizon-unaligned.apk
+
+          echo "APK successfully built and signed: horizon-android-v0.1-arm64.apk"
+          ls -lh horizon-android-v0.1-arm64.apk
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: horizon-android-arm64
-          path: |
-            target/aarch64-linux-android/release/*.so
-            target/aarch64-linux-android/release/*.a
-          if-no-files-found: warn
+          name: horizon-android-v0.1-arm64.apk
+          path: horizon-android-v0.1-arm64.apk
+
+      - name: Publish to GitHub Releases (v0.1)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete v0.1 -y || true
+          git tag -d v0.1 2>/dev/null || true
+          git push origin :refs/tags/v0.1 2>/dev/null || true
+          gh release create v0.1 horizon-android-v0.1-arm64.apk \
+            --title "Horizon Android v0.1 (ARM64) by RedGlitchX" \
+            --notes "### 🎮 Horizon Android v0.1 (ARM64) - Initial Release
+
+Port of Minecraft 26.3 Rust client to Android ARM64 by **RedGlitchX**.
+
+#### 📱 Features in v0.1:
+- **Pojav / Mojo-style Touch Controls:** On-screen virtual D-Pad, Jump, Sneak lock, Attack, Use, Inventory, Chat, Pause, F3, and F5 buttons.
+- **Direct Engine Integration:** Rust input layer with full touch mapping.
+- **ARM64 Native Engine:** Built for \`aarch64-linux-android\` devices.
+
+#### 📥 Installation:
+Download **horizon-android-v0.1-arm64.apk** below and install it on your Android device."
