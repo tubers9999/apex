@@ -2,7 +2,7 @@ name: mod-registry
 # The submission service is its own workspace (crates/horizon-mod-registry), so the checks job doesn't build
 # it: this one does, when it or horizon-mods (the checks it shares with the launcher and the game) changes.
 on:
-  push:
+  # push:
     branches: [main]
     paths:
       - 'crates/horizon-mods/**'

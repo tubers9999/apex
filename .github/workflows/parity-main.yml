@@ -5,7 +5,7 @@ name: parity-main
 # bisects the failing harnesses over those merges and comments on the pull request that broke them. Releases ship
 # only a commit whose parity-main passed (tools/release_train.py), so nothing a harness catches reaches players.
 on:
-  push:
+  # push:
     branches: [main]
   workflow_dispatch:
 permissions:

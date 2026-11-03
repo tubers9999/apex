@@ -4,7 +4,7 @@ name: pack load bench
 # request can show its numbers next to main's. Started by hand, or by a push to a `pack-bench/*` branch (a fork can't
 # start a workflow its main lacks), against horizon-rust/horizon's main.
 on:
-  push:
+  # push:
     branches: ['pack-bench/**']
   workflow_dispatch:
     inputs:

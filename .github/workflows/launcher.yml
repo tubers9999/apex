@@ -21,7 +21,7 @@ name: launcher
 #   gh workflow run launcher --ref main -f dry_run=false -f force=true
 
 on:
-  push:
+  # push:
     branches: [main, launcher, 'launcher-*']
     paths:
       # Everything the launcher is built and packaged from, as tools/release_train.py's LAUNCHER_PATHS.

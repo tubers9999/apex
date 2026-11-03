@@ -22,5 +22,8 @@ horizon-dualsense = { path = "../horizon-dualsense", optional = true }
 [features]
 controllers = ["dep:horizon-dualsense"]
 
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", features = ["native-activity"] }
+
 [lints]
 workspace = true

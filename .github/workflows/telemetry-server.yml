@@ -2,7 +2,7 @@ name: telemetry-server
 # The ingest server is its own workspace (crates/horizon-telemetry-server), so the checks job doesn't build
 # it: this one does, when it or the crate it shares with the launcher and the game changes.
 on:
-  push:
+  # push:
     branches: [main]
     paths:
       - 'crates/horizon-telemetry/**'

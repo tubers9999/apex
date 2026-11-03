@@ -3,7 +3,7 @@ name: native hook stamp
 # main run main's own tool; fragments are read as data, not PR code.
 
 on:
-  push:
+  # push:
     branches: [main]
     paths:
       - 'tools/native-hook-fragments/*.json'
