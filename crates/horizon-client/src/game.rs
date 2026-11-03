@@ -442,6 +442,22 @@ use winit::{
     window::{CursorGrabMode, Window, WindowId},
 };
 
+fn create_event_loop() -> std::result::Result<EventLoop<()>, EventLoopError> {
+    #[cfg(target_os = "android")]
+    {
+        use winit::platform::android::EventLoopBuilderExtAndroid;
+        let mut builder = EventLoop::builder();
+        if let Some(app) = crate::ANDROID_APP.get() {
+            builder.with_android_app(app.clone());
+        }
+        builder.build()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        EventLoop::new()
+    }
+}
+
 /// The time a frame spends uploading chunk meshes when the player set no
 /// Chunk Updates or Upload Budget: a burst past it waits for the next frames.
 const AUTO_UPLOAD_TIME: Duration = Duration::from_millis(2);
@@ -20800,7 +20816,7 @@ fn run_event_loop(mut game: Game<'_>) -> Result<()> {
         return game.error.take().map_or(Ok(()), Err);
     }
     let mut split = split::Split::new(game);
-    let result = EventLoop::new()?.run_app(&mut split);
+    let result = create_event_loop()?.run_app(&mut split);
     game = split.host;
     narrator::stop();
     leave_fullscreen_after(&result, &mut game.settings);
@@ -21292,7 +21308,7 @@ fn run_loading(
         error: None,
     };
     let mut app = App::Loading(Box::new(loading));
-    let result = EventLoop::new()?.run_app(&mut app);
+    let result = create_event_loop()?.run_app(&mut app);
     narrator::stop();
     match &mut app {
         // Ready: splitscreen around P1's game.

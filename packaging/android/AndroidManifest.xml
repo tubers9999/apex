@@ -27,7 +27,7 @@
             android:screenOrientation="sensorLandscape">
             <meta-data
                 android:name="android.app.lib_name"
-                android:value="horizon_client_lib" />
+                android:value="horizon_client" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
