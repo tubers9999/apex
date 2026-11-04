@@ -15798,11 +15798,11 @@ impl Game<'_> {
         };
         let mut hud = horizon_client::spans::time("hud", || self.hud(size));
         self.flush_ime(&mut hud);
+        let title = self.shows_panorama();
         #[cfg(target_os = "android")]
         if !title && !self.ui.hide_gui {
             horizon_client::ui_theme::draw_touch_controls(&self.touch_controls, &self.gui.atlas, &mut hud);
         }
-        let title = self.shows_panorama();
         let (yaw, pitch) = if title {
             // PanoramaRenderer: the title cube spins at 0.1 degrees per tick, pitched 10 degrees.
             (
