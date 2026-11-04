@@ -2399,6 +2399,7 @@ struct Game<'a> {
     pack: PackResources,
     /// The title and menu bundle (GUI atlas, font and panorama).
     gui: UiResources,
+    pub touch_controls: horizon_client_input::touch::VirtualControlsOverlay,
     /// `FogRenderer`'s evolving state.
     fog: horizon_client::fog::FogState,
     screen_fx: horizon_client::screen_effects::ScreenEffects,
@@ -15797,6 +15798,10 @@ impl Game<'_> {
         };
         let mut hud = horizon_client::spans::time("hud", || self.hud(size));
         self.flush_ime(&mut hud);
+        #[cfg(target_os = "android")]
+        if !title && !self.ui.hide_gui {
+            horizon_client::ui_theme::draw_touch_controls(&self.touch_controls, &self.gui.atlas, &mut hud);
+        }
         let title = self.shows_panorama();
         let (yaw, pitch) = if title {
             // PanoramaRenderer: the title cube spins at 0.1 degrees per tick, pitched 10 degrees.
@@ -17527,6 +17532,25 @@ impl Game<'_> {
                     }
                     self.begin_closing_save(true)?;
                 }
+                WindowEvent::Touch(touch) => {
+                    let (w, h) = self.window.as_ref().map(|w| {
+                        let s = w.inner_size();
+                        (s.width as f32, s.height as f32)
+                    }).unwrap_or((1920.0, 1080.0));
+                    let norm_x = (touch.location.x as f32 / w).clamp(0.0, 1.0);
+                    let norm_y = (touch.location.y as f32 / h).clamp(0.0, 1.0);
+                    match touch.phase {
+                        winit::event::TouchPhase::Started => {
+                            self.touch_controls.on_touch_down(touch.id, norm_x, norm_y);
+                        }
+                        winit::event::TouchPhase::Moved => {
+                            self.touch_controls.on_touch_move(touch.id, norm_x, norm_y);
+                        }
+                        winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
+                            self.touch_controls.on_touch_up(touch.id);
+                        }
+                    }
+                }
                 // Input method composition: the committed text types like a key's text.
                 WindowEvent::Ime(winit::event::Ime::Commit(text)) => self.ime_commit(&text),
                 WindowEvent::Ime(winit::event::Ime::Preedit(text, cursor)) => {
@@ -19123,6 +19147,7 @@ impl<'a> Game<'a> {
             mods: Default::default(),
             recipe_tables: Default::default(),
             panel: Default::default(),
+            touch_controls: horizon_client_input::touch::VirtualControlsOverlay::pojav_default_layout(),
             native_shaders: Default::default(),
             native_input: Default::default(),
             native_lifecycle: Default::default(),
@@ -21013,6 +21038,7 @@ impl Loading {
         follow_keymap(&mut event);
         if let Err(error) = self.menu_event(event_loop, event) {
             self.error = Some(error);
+            #[cfg(not(target_os = "android"))]
             event_loop.exit();
         }
     }
@@ -21058,8 +21084,11 @@ impl Loading {
         // The loop may run once more after exit(): keep the first error, the
         // one that ended loading.
         if self.error.is_some() {
-            event_loop.exit();
-            return;
+            #[cfg(not(target_os = "android"))]
+            {
+                event_loop.exit();
+                return;
+            }
         }
         if horizon_threads::stop_requests() > 0 {
             // No world is open yet: nothing to save.
@@ -21068,8 +21097,11 @@ impl Loading {
         }
         if let Err(error) = self.poll_menu_resources() {
             self.error = Some(error);
-            event_loop.exit();
-            return;
+            #[cfg(not(target_os = "android"))]
+            {
+                event_loop.exit();
+                return;
+            }
         }
         if let Some(w) = &self.window {
             if self.options.as_ref().is_some_and(|o| o.offscreen) {
@@ -21240,8 +21272,11 @@ impl ApplicationHandler for App {
             App::Loading(loading) => {
                 loading.about_to_wait(event_loop);
                 if loading.error.is_some() {
-                    event_loop.exit();
-                    return;
+                    #[cfg(not(target_os = "android"))]
+                    {
+                        event_loop.exit();
+                        return;
+                    }
                 }
                 match if loading.menu.reload_packs || !loading.ready_for_handoff() {
                     None
@@ -21249,7 +21284,10 @@ impl ApplicationHandler for App {
                     loading.loaded.take()
                 } {
                     None => Step::Waiting,
-                    Some(Err(e)) => Step::Failed(e.into()),
+                    Some(Err(e)) => {
+                        log::error!("Horizon Android resource loading failed: {e}");
+                        Step::Failed(e.into())
+                    }
                     Some(Ok(loaded)) => match loading.finish(loaded) {
                         Ok(Some(game)) => Step::Ready(Box::new(game)),
                         Ok(None) => Step::Done,
@@ -21263,9 +21301,11 @@ impl ApplicationHandler for App {
             Step::Ready(game) => *self = App::Ready(game),
             Step::Done => event_loop.exit(),
             Step::Failed(e) => {
+                log::error!("Horizon startup failure: {e}");
                 if let App::Loading(loading) = self {
                     loading.error = Some(e);
                 }
+                #[cfg(not(target_os = "android"))]
                 event_loop.exit();
             }
         }

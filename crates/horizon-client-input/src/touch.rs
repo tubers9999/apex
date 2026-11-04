@@ -32,6 +32,29 @@ pub enum VirtualButton {
     PerspectiveF5,
 }
 
+impl VirtualButton {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Forward => "▲",
+            Self::Backward => "▼",
+            Self::Left => "◀",
+            Self::Right => "▶",
+            Self::Jump => "JUMP",
+            Self::Sneak => "SNEAK",
+            Self::Sprint => "RUN",
+            Self::Attack => "HIT",
+            Self::UseItem => "USE",
+            Self::PickBlock => "PICK",
+            Self::Inventory => "INV",
+            Self::DropItem => "DROP",
+            Self::Chat => "CHAT",
+            Self::PauseMenu => "MENU",
+            Self::DebugF3 => "F3",
+            Self::PerspectiveF5 => "F5",
+        }
+    }
+}
+
 /// A 2D bounding box in normalized screen coordinates [0.0, 1.0].
 #[derive(Debug, Clone, Copy)]
 pub struct NormalizedRect {

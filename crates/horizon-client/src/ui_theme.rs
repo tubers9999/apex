@@ -642,6 +642,55 @@ fn wrapping_lines(ui: &Ui, face: Face, size: f32, text: &str, max_w: f32) -> Vec
     lines
 }
 
+/// Draws the on-screen virtual touch controls overlay (Pojav / Mojo Launcher layout).
+pub fn draw_touch_controls(
+    overlay: &horizon_client_input::touch::VirtualControlsOverlay,
+    atlas: &HudAtlas,
+    batch: &mut HudBatch,
+) {
+    let mut ui = Ui::new(atlas, batch, (0.0, 0.0));
+    for (&button, rect) in &overlay.buttons {
+        let px = rect.x * batch.width;
+        let py = rect.y * batch.height;
+        let pw = rect.width * batch.width;
+        let ph = rect.height * batch.height;
+
+        let pressed = overlay.is_pressed(button);
+        let bg_color = if pressed {
+            color::hex(0xFFFFFF, 120)
+        } else {
+            color::hex(0x1F2428, 140)
+        };
+        let border_color = if pressed {
+            color::hex(0xFFFFFF, 200)
+        } else {
+            color::hex(0x8B949E, 160)
+        };
+        let text_color = if pressed {
+            color::hex(0x000000, 240)
+        } else {
+            color::hex(0xF0F6FC, 230)
+        };
+
+        // Fill background
+        batch.fill(atlas, px, py, pw, ph, bg_color);
+        // Draw 1px border
+        batch.fill(atlas, px, py, pw, 1.0, border_color);
+        batch.fill(atlas, px, py + ph - 1.0, pw, 1.0, border_color);
+        batch.fill(atlas, px, py + 1.0, 1.0, ph - 2.0, border_color);
+        batch.fill(atlas, px + pw - 1.0, py + 1.0, 1.0, ph - 2.0, border_color);
+
+        // Center label
+        let label = button.label();
+        let font_size = (ph * 0.35).clamp(10.0, 20.0);
+        let label_w = ui.measure(Face::SemiBold, font_size, label);
+        let tx = px + (pw - label_w) / 2.0;
+        let ty = py + (ph - font_size) / 2.0;
+        ui.text(Face::SemiBold, font_size, tx, ty, text_color, label);
+    }
+    ui.finish();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
