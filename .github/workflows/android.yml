@@ -65,7 +65,7 @@ jobs:
           echo "Using Platform: $PLATFORM"
 
           # 1. Package resources into base APK
-          $BUILD_TOOLS/aapt package -F base.apk -M packaging/android/AndroidManifest.xml -I $PLATFORM -f
+          $BUILD_TOOLS/aapt package -F base.apk -M packaging/android/AndroidManifest.xml -S packaging/android/res -I $PLATFORM -f
 
           # 2. Add ARM64 native library into lib/arm64-v8a/
           mkdir -p lib/arm64-v8a

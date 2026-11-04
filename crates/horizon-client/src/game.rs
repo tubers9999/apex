@@ -442,7 +442,7 @@ use winit::{
     window::{CursorGrabMode, Window, WindowId},
 };
 
-fn create_event_loop() -> std::result::Result<EventLoop<()>, EventLoopError> {
+pub(super) fn create_event_loop() -> std::result::Result<EventLoop<()>, EventLoopError> {
     #[cfg(target_os = "android")]
     {
         use winit::platform::android::EventLoopBuilderExtAndroid;
@@ -556,7 +556,11 @@ impl Options {
     /// The command line, then what it asks of the process: the game folder, the account.
     /// A bad command line is a [`launch_api::UsageError`] (exit code 2, no crash report).
     fn read() -> Result<Option<Self>> {
-        let Some(mut o) = Self::parse(std::env::args().skip(1))
+        #[cfg(target_os = "android")]
+        let args = std::iter::empty::<String>();
+        #[cfg(not(target_os = "android"))]
+        let args = std::env::args().skip(1);
+        let Some(mut o) = Self::parse(args)
             .map_err(|e| launch_api::UsageError(e.to_string()))?
         else {
             return Ok(None);
@@ -614,16 +618,30 @@ impl Options {
     /// The command line alone: no file is read and nothing changes. `None` for `--help` and
     /// `--launch-api`, which print and end the run.
     fn parse(mut args: impl Iterator<Item = String>) -> Result<Option<Self>> {
-        let sibling = std::env::current_exe()?
-            .parent()
-            .ok_or("missing executable directory")?
-            .join("resources");
-        let mut o = Self {
-            resources: if sibling.join("horizon-resources.json").exists() {
+        #[cfg(target_os = "android")]
+        let (game_dir_default, default_resources) = {
+            let base = crate::ANDROID_APP
+                .get()
+                .and_then(|a| a.internal_data_path())
+                .unwrap_or_else(|| std::path::PathBuf::from("/data/data/dev.redglitchx.horizon/files"));
+            let res = base.join("resources");
+            (Some(base), res)
+        };
+        #[cfg(not(target_os = "android"))]
+        let (game_dir_default, default_resources) = {
+            let sibling = std::env::current_exe()?
+                .parent()
+                .ok_or("missing executable directory")?
+                .join("resources");
+            let d = if sibling.join("horizon-resources.json").exists() {
                 sibling
             } else {
                 std::path::Path::new(".local/horizon-client").join(horizon_core::VANILLA_VERSION)
-            },
+            };
+            (None, d)
+        };
+        let mut o = Self {
+            resources: default_resources,
             distance: 12,
             distance_override: None,
             seed: 0,
@@ -659,7 +677,7 @@ impl Options {
             dev_mods: Vec::new(),
             execution_role: execution_role::ExecutionRole::Client,
             fullscreen: false,
-            game_dir: None,
+            game_dir: game_dir_default,
             quick_play: None,
             session_file: std::env::var("HORIZON_SESSION_FILE").ok(),
             session_stdin: false,

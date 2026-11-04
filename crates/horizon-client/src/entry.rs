@@ -15,6 +15,9 @@ pub fn main_with(mods: crate::mod_api::Mods) {
     horizon_threads::configure_allocator();
     horizon_client::telemetry::mark_start();
     horizon_client::spans::startup::init(std::time::Instant::now());
+    #[cfg(target_os = "android")]
+    let args: Vec<String> = Vec::new();
+    #[cfg(not(target_os = "android"))]
     let args: Vec<String> = std::env::args().skip(1).collect();
     let game_args = args.iter().take_while(|a| *a != "--dedicated");
     let help = game_args
@@ -180,11 +183,14 @@ pub fn main_with(mods: crate::mod_api::Mods) {
             eprintln!("Press Enter to close.");
             let _ = std::io::stdin().read_line(&mut String::new());
         }
+        #[cfg(not(target_os = "android"))]
         std::process::exit(if usage {
             game::exit_code::USAGE
         } else {
             game::exit_code::ERROR
         });
+        #[cfg(target_os = "android")]
+        eprintln!("Horizon Android stopped: {error}");
     }
     logging::flush();
 }

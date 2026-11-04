@@ -20,6 +20,14 @@ pub fn android_main(app: android_activity::AndroidApp) {
         .internal_data_path()
         .unwrap_or_else(|| std::path::PathBuf::from("/data/data/dev.redglitchx.horizon/files"));
     std::fs::create_dir_all(&internal_path).ok();
-    logging::set_game_home(internal_path);
+    std::env::set_current_dir(&internal_path).ok();
+    logging::set_game_home(internal_path.clone());
+    logging::set_player_dir(internal_path);
+
+    std::panic::set_hook(Box::new(|info| {
+        log::error!("Horizon Android Panic: {info}");
+        eprintln!("Horizon Android Panic: {info}");
+    }));
+
     entry::main();
 }

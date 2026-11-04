@@ -23,7 +23,7 @@ pub(super) fn show(looked_in: &std::path::Path, settings: &Settings) -> Result<(
         window: None,
         renderer: None,
         gui: UiResources {
-            atlas: HudAtlas::build(looked_in)?,
+            atlas: HudAtlas::build(looked_in).unwrap_or_else(|_| HudAtlas::boot()),
             panorama: Arc::new(horizon_client::gfx::panorama::Faces::colour([0; 4])),
         },
         screen: NoResources::new(looked_in),
@@ -32,7 +32,7 @@ pub(super) fn show(looked_in: &std::path::Path, settings: &Settings) -> Result<(
         error: None,
     };
     horizon_client::hud::GUI_SCALE.store(settings.gui_scale, Ordering::Relaxed);
-    EventLoop::new()?.run_app(&mut app)?;
+    create_event_loop()?.run_app(&mut app)?;
     app.error.map_or(Ok(()), Err)
 }
 
@@ -147,6 +147,13 @@ impl ApplicationHandler for Missing {
                 button: MouseButton::Left,
                 ..
             } => self.click(event_loop),
+            WindowEvent::Touch(touch) => {
+                self.pointer = (touch.location.x, touch.location.y);
+                if touch.phase == winit::event::TouchPhase::Ended {
+                    self.click(event_loop);
+                }
+                window.request_redraw();
+            }
             WindowEvent::KeyboardInput { event, .. }
                 if event.state == ElementState::Pressed
                     && event.physical_key == PhysicalKey::Code(KeyCode::Escape) =>
