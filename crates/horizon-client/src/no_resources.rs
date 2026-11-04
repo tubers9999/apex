@@ -7,13 +7,24 @@ use crate::ui_theme::{self, Face, Ui, color};
 /// The launcher's download page.
 pub const DOWNLOAD_URL: &str = "https://playhorizon.dev";
 
+#[cfg(not(target_os = "android"))]
 const TITLE: &str = "Start Horizon from the launcher";
+#[cfg(target_os = "android")]
+const TITLE: &str = "Horizon Android (RedGlitchX)";
+
+#[cfg(not(target_os = "android"))]
 const PARAGRAPHS: [&str; 3] = [
     "This is the game the Horizon launcher installs and starts. On its own it has none of \
      Minecraft's files, so it can't start.",
     "Horizon needs your own copy of Minecraft: Java Edition. The launcher signs you in and \
      prepares the game files from it.",
     "Download the launcher at playhorizon.dev, then press Play there.",
+];
+#[cfg(target_os = "android")]
+const PARAGRAPHS: [&str; 3] = [
+    "Motorul nativ Minecraft 26.3 Horizon a pornit cu succes pe Android!",
+    "Pentru a rula lumea si texturile, plaseaza resursele Minecraft 26.3 in folderul indicat mai jos.",
+    "Copieaza folderul 'resources' din Horizon PC in /sdcard/games/horizon/resources pentru a juca.",
 ];
 const COLUMN: f32 = 560.0;
 const BUTTON_GAP: f32 = 12.0;

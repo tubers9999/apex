@@ -620,12 +620,18 @@ impl Options {
     fn parse(mut args: impl Iterator<Item = String>) -> Result<Option<Self>> {
         #[cfg(target_os = "android")]
         let (game_dir_default, default_resources) = {
-            let base = crate::ANDROID_APP
+            let internal = crate::ANDROID_APP
                 .get()
                 .and_then(|a| a.internal_data_path())
                 .unwrap_or_else(|| std::path::PathBuf::from("/data/data/dev.redglitchx.horizon/files"));
-            let res = base.join("resources");
-            (Some(base), res)
+            let sdcard_horizon = std::path::PathBuf::from("/sdcard/games/horizon");
+            let sdcard_res = sdcard_horizon.join("resources");
+            let (dir, res) = if sdcard_res.exists() || sdcard_horizon.exists() {
+                (sdcard_horizon, sdcard_res)
+            } else {
+                (internal.clone(), internal.join("resources"))
+            };
+            (Some(dir), res)
         };
         #[cfg(not(target_os = "android"))]
         let (game_dir_default, default_resources) = {
