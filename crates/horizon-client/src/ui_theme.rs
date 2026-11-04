@@ -649,20 +649,23 @@ pub fn draw_touch_controls(
     batch: &mut HudBatch,
 ) {
     let mut ui = Ui::new(atlas, batch, (0.0, 0.0));
+    let screen_w = ui.w;
+    let screen_h = ui.h;
+
     for (&button, rect) in &overlay.buttons {
-        let px = rect.x * batch.width;
-        let py = rect.y * batch.height;
-        let pw = rect.width * batch.width;
-        let ph = rect.height * batch.height;
+        let px = rect.x * screen_w;
+        let py = rect.y * screen_h;
+        let pw = rect.width * screen_w;
+        let ph = rect.height * screen_h;
 
         let pressed = overlay.is_pressed(button);
         let bg_color = if pressed {
-            color::hex(0xFFFFFF, 120)
+            color::hex(0xFFFFFF, 140)
         } else {
             color::hex(0x1F2428, 140)
         };
         let border_color = if pressed {
-            color::hex(0xFFFFFF, 200)
+            color::hex(0xFFFFFF, 220)
         } else {
             color::hex(0x8B949E, 160)
         };
@@ -672,13 +675,9 @@ pub fn draw_touch_controls(
             color::hex(0xF0F6FC, 230)
         };
 
-        // Fill background
-        batch.fill(atlas, px, py, pw, ph, bg_color);
-        // Draw 1px border
-        batch.fill(atlas, px, py, pw, 1.0, border_color);
-        batch.fill(atlas, px, py + ph - 1.0, pw, 1.0, border_color);
-        batch.fill(atlas, px, py + 1.0, 1.0, ph - 2.0, border_color);
-        batch.fill(atlas, px + pw - 1.0, py + 1.0, 1.0, ph - 2.0, border_color);
+        // Fill background and rounded border directly on ui
+        ui.rounded(px, py, pw, ph, 4.0, bg_color);
+        ui.border(px, py, pw, ph, 4.0, border_color);
 
         // Center label
         let label = button.label();
