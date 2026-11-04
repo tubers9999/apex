@@ -624,12 +624,32 @@ impl Options {
                 .get()
                 .and_then(|a| a.internal_data_path())
                 .unwrap_or_else(|| std::path::PathBuf::from("/data/data/dev.redglitchx.horizon/files"));
+            let external = crate::ANDROID_APP
+                .get()
+                .and_then(|a| a.external_data_path())
+                .unwrap_or_else(|| std::path::PathBuf::from("/sdcard/Android/data/dev.redglitchx.horizon/files"));
             let sdcard_horizon = std::path::PathBuf::from("/sdcard/games/horizon");
-            let sdcard_res = sdcard_horizon.join("resources");
-            let (dir, res) = if sdcard_res.exists() || sdcard_horizon.exists() {
-                (sdcard_horizon, sdcard_res)
+
+            let candidates = [
+                sdcard_horizon.join("resources"),
+                external.join("resources"),
+                internal.join("resources"),
+                std::path::PathBuf::from("/sdcard/games/horizon/resources"),
+                std::path::PathBuf::from("/storage/emulated/0/games/horizon/resources"),
+            ];
+
+            let res = candidates
+                .iter()
+                .find(|p| p.join("horizon-resources.json").is_file())
+                .cloned()
+                .unwrap_or_else(|| sdcard_horizon.join("resources"));
+
+            let dir = if sdcard_horizon.exists() {
+                sdcard_horizon
+            } else if external.exists() {
+                external
             } else {
-                (internal.clone(), internal.join("resources"))
+                internal
             };
             (Some(dir), res)
         };
