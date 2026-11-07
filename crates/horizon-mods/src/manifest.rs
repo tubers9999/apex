@@ -14,8 +14,8 @@ pub const WASM: &str = "mod.wasm";
 /// built for any 0.1.x SDK.
 pub const API: &str = "0.1";
 /// The manifest `api` lines this build loads. 0.2 is 0.1 plus content:
-/// `assets/` and `data/` in the `.hmod`, with blocks, items, creative tabs, mob effects,
-/// entity types and menu types declared in `data/<id>/horizon/` (docs/mods.md). Code still links API 0.1.
+/// `assets/` and `data/` in the `.hmod`, with blocks, items and mob effects declared in
+/// `data/<id>/horizon/` (docs/modpacks.md). Code still links API 0.1.
 /// 0.3 is a server mod (experimental): the `horizon-server-mod` world.
 pub const APIS: [&str; 3] = [API, "0.2", SERVER_API];
 /// The line of server mods, experimental: `side = "server"`.
@@ -362,17 +362,6 @@ impl Package {
         }
         Ok(Package { manifest, wasm })
     }
-    /// Whether the mod at `path` (a `.hmod` or a folder) has a [`MANIFEST`]: content, or a legacy
-    /// WebAssembly mod. A `.hmod` holding only native code has none.
-    pub fn has_manifest(path: &Path) -> bool {
-        if path.is_dir() {
-            return path.join(MANIFEST).is_file();
-        }
-        std::fs::File::open(path)
-            .ok()
-            .and_then(|f| zip::ZipArchive::new(f).ok())
-            .is_some_and(|mut zip| zip.by_name(MANIFEST).is_ok())
-    }
     /// The `.hmod` bytes for `manifest_text` and a component.
     pub fn write(manifest_text: &str, wasm: &[u8]) -> Result<Vec<u8>, String> {
         Self::write_files(manifest_text, Some(wasm), &[])
@@ -417,6 +406,37 @@ pub fn find(dir: &Path) -> Vec<PathBuf> {
         .collect();
     found.sort();
     found
+}
+
+/// Turns a `wasm32-unknown-unknown` cdylib built with the SDK into the
+/// component the game loads.
+#[cfg(feature = "pack")]
+pub fn componentize(core: &[u8]) -> Result<Vec<u8>, String> {
+    wit_component::ComponentEncoder::default()
+        .module(core)
+        .and_then(|e| e.validate(true).encode())
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// The names a component imports: `horizon:mods/game@0.1.0`, ...
+#[cfg(feature = "pack")]
+pub fn component_imports(component: &[u8]) -> Result<Vec<String>, String> {
+    use wit_parser::{WorldItem, WorldKey};
+    let wit_component::DecodedWasm::Component(resolve, world) =
+        wit_component::decode(component).map_err(|e| format!("{e:#}"))?
+    else {
+        return Err("a WIT package, not a component".into());
+    };
+    let names = resolve.worlds[world]
+        .imports
+        .iter()
+        .map(|(key, item)| match (key, item) {
+            (WorldKey::Interface(id), _) | (_, WorldItem::Interface { id, .. }) => resolve
+                .id_of(*id)
+                .unwrap_or_else(|| resolve.name_world_key(key)),
+            _ => resolve.name_world_key(key),
+        });
+    Ok(names.collect())
 }
 
 #[cfg(test)]

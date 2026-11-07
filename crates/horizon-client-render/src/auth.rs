@@ -5,9 +5,12 @@
 //! process's memory: it is never logged, printed or written anywhere.
 use std::{
     path::Path,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
+
+#[cfg(not(target_os = "android"))]
+use std::sync::OnceLock;
 
 /// MinecraftServicesEnvironment.PROD.
 pub const DEFAULT_DISCOVERY: &str = "https://discovery.minecraftservices.com/minecraft/client";
@@ -20,6 +23,7 @@ pub struct AuthSession {
     pub uuid: u128,
     pub xuid: Option<String>,
     access_token: String,
+    ely: bool,
 }
 impl std::fmt::Debug for AuthSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -47,6 +51,7 @@ impl AuthSession {
             uuid,
             xuid: None,
             access_token: access_token.to_owned(),
+            ely: false,
         }
     }
     /// The session file's JSON: {"name", "uuid", "access_token", "user_type": "msa", "xuid"}.
@@ -64,14 +69,15 @@ impl AuthSession {
         let access_token = field("access_token")
             .filter(|t| !t.is_empty())
             .ok_or("the session has no access token")?;
-        if field("user_type").is_some_and(|t| t != "msa") {
-            return Err("the session is not a Microsoft account session".into());
+        if field("user_type").is_some_and(|t| t != "msa" && t != "ely") {
+            return Err("the session has an unsupported account provider".into());
         }
         Ok(Self {
             name: name.to_owned(),
             uuid,
             xuid: field("xuid").map(str::to_owned),
             access_token: access_token.to_owned(),
+            ely: field("user_type") == Some("ely"),
         })
     }
     /// Read the session file the launcher wrote and delete it at once. It
@@ -103,14 +109,35 @@ impl AuthSession {
     }
 }
 
+#[cfg(not(target_os = "android"))]
 static CURRENT: OnceLock<Arc<AuthSession>> = OnceLock::new();
+#[cfg(target_os = "android")]
+static CURRENT: std::sync::RwLock<Option<Arc<AuthSession>>> = std::sync::RwLock::new(None);
 
-/// The account this game was started with (set once at start).
+/// The account this game was started with. Android can launch another game in
+/// the same process, so it replaces the previous game's session.
 pub fn set_current(session: AuthSession) {
+    #[cfg(not(target_os = "android"))]
     let _ = CURRENT.set(Arc::new(session));
+    #[cfg(target_os = "android")]
+    {
+        *CURRENT.write().unwrap() = Some(Arc::new(session));
+    }
 }
 pub fn current() -> Option<Arc<AuthSession>> {
-    CURRENT.get().cloned()
+    #[cfg(not(target_os = "android"))]
+    {
+        CURRENT.get().cloned()
+    }
+    #[cfg(target_os = "android")]
+    {
+        CURRENT.read().unwrap().clone()
+    }
+}
+/// End the previous Android game's identity before parsing a new launch.
+#[cfg(target_os = "android")]
+pub fn clear_current() {
+    *CURRENT.write().unwrap() = None;
 }
 
 /// Why joining a server through the session service failed, like the
@@ -187,7 +214,6 @@ pub(crate) fn discovery() -> Result<Arc<serde_json::Value>, JoinError> {
     let doc: serde_json::Value = agent()
         .get(&discovery_url())
         .call()
-        .inspect_err(|e| log::warn!("The services discovery document: {e}"))
         .ok()
         .and_then(|r| r.into_string().ok())
         .and_then(|t| serde_json::from_str(&t).ok())
@@ -211,6 +237,9 @@ pub fn endpoint(doc: &serde_json::Value, service: &str, name: &str) -> Option<St
 /// to no actions, as vanilla does. Blocks: call it off the main thread.
 pub fn fetch_account_status(session: &AuthSession) -> crate::ban_notice::AccountStatus {
     use crate::ban_notice::{AccountStatus, parse_profile_actions, parse_properties};
+    if session.ely {
+        return AccountStatus::default();
+    }
     let Ok(doc) = discovery() else {
         return AccountStatus::default();
     };
@@ -254,54 +283,26 @@ pub fn join_request(session: &AuthSession, server_hash: &str) -> String {
     .to_string()
 }
 
-/// A join that got no answer is worth one more try, as leaving and joining
-/// again would be: `join` is safe to repeat, it only records the server's
-/// hash. Any other answer is the service's own and stands.
-fn with_one_retry(
-    mut join: impl FnMut() -> Result<(), JoinError>,
-    pause: Duration,
-) -> Result<(), JoinError> {
-    match join() {
-        Err(JoinError::Unavailable) => {
-            std::thread::sleep(pause);
-            join()
-        }
-        result => result,
-    }
-}
-
 /// MinecraftServicesSessionService.joinServer: tell the session service this
-/// account is joining the server whose hash is `server_hash`. Horizon tries
-/// twice when the service doesn't answer; vanilla asks the player to.
+/// account is joining the server whose hash is `server_hash`.
 pub fn join_server(session: &AuthSession, server_hash: &str) -> Result<(), JoinError> {
-    with_one_retry(
-        || join_server_once(session, server_hash),
-        Duration::from_millis(500),
-    )
-}
-
-fn join_server_once(session: &AuthSession, server_hash: &str) -> Result<(), JoinError> {
-    let doc = discovery()?;
-    let url = endpoint(&doc, "session", "join").ok_or(JoinError::Unavailable)?;
+    let url = if session.ely {
+        "https://authserver.ely.by/session/join".into()
+    } else {
+        let doc = discovery()?;
+        endpoint(&doc, "session", "join").ok_or(JoinError::Unavailable)?
+    };
     match agent()
         .post(&url)
         .set("Content-Type", "application/json; charset=utf-8")
         .send_string(&join_request(session, server_hash))
     {
         Ok(_) => Ok(()),
-        Err(ureq::Error::Status(status, response)) => {
-            if status >= 500 {
-                log::warn!("The session service's join answered {status}");
-            }
-            Err(JoinError::from_response(
-                status,
-                &response.into_string().unwrap_or_default(),
-            ))
-        }
-        Err(ureq::Error::Transport(e)) => {
-            log::warn!("The session service's join: {e}");
-            Err(JoinError::Unavailable)
-        }
+        Err(ureq::Error::Status(status, response)) => Err(JoinError::from_response(
+            status,
+            &response.into_string().unwrap_or_default(),
+        )),
+        Err(ureq::Error::Transport(_)) => Err(JoinError::Unavailable),
     }
 }
 
@@ -403,6 +404,9 @@ pub fn parse_certificates(body: &str) -> Option<ChatKeyPair> {
 /// UserApiService.getKeyPair: the certificates endpoint, POSTed with the
 /// access token.
 pub fn fetch_chat_keys(session: &AuthSession) -> Result<ChatKeyPair, JoinError> {
+    if session.ely {
+        return Err(JoinError::Unavailable);
+    }
     let doc = discovery()?;
     let url = endpoint(&doc, "player", "getCertificates").ok_or(JoinError::Unavailable)?;
     let body = match agent()
@@ -497,6 +501,9 @@ const MINECRAFT_PROFILE: &str = "https://api.minecraftservices.com/minecraft/pro
 /// Single-player and integrated servers often send no `textures` property, or
 /// one without the equipped cape; the client asks the profile endpoint once.
 pub fn own_textures(session: &AuthSession) -> Option<crate::skins::Textures> {
+    if session.ely {
+        return None;
+    }
     let response = agent()
         .get(MINECRAFT_PROFILE)
         .set("Authorization", &format!("Bearer {}", session.access_token))
@@ -597,41 +604,6 @@ mod tests {
 
     const UUID: u128 = 0x069a79f444e94726a5befca90e38aaf5;
 
-    /// Runs `with_one_retry` over these answers, in order: the result and how
-    /// many it asked for.
-    fn joined(answers: &[Result<(), JoinError>]) -> (Result<(), JoinError>, usize) {
-        let mut asked = 0;
-        let result = with_one_retry(
-            || {
-                asked += 1;
-                answers[asked - 1].clone()
-            },
-            Duration::ZERO,
-        );
-        (result, asked)
-    }
-
-    #[test]
-    fn a_join_with_no_answer_is_tried_once_more() {
-        let none = Err(JoinError::Unavailable);
-        assert_eq!(joined(&[none.clone(), Ok(())]), (Ok(()), 2));
-        // Twice without an answer: the message the player knows.
-        assert_eq!(joined(&[none.clone(), none.clone()]), (none, 2));
-    }
-
-    #[test]
-    fn a_join_the_service_answered_is_not_tried_again() {
-        assert_eq!(joined(&[Ok(())]), (Ok(()), 1));
-        for refused in [
-            JoinError::InvalidSession,
-            JoinError::Banned,
-            JoinError::InsufficientPrivileges,
-            JoinError::Other("Status: 429".into()),
-        ] {
-            assert_eq!(joined(&[Err(refused.clone())]), (Err(refused), 1));
-        }
-    }
-
     fn write(dir: &Path, text: &str, mode: u32) -> std::path::PathBuf {
         let path = dir.join("session.json");
         std::fs::write(&path, text).unwrap();
@@ -697,6 +669,18 @@ mod tests {
         assert!(AuthSession::parse(r#"{"name":"A","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t","user_type":"legacy"}"#).is_err());
         let s = AuthSession::parse(r#"{"name":"A","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t","xuid":"25"}"#).unwrap();
         assert_eq!(s.xuid.as_deref(), Some("25"));
+    }
+    #[test]
+    fn ely_session_is_explicit_and_never_requests_microsoft_credentials() {
+        let session=AuthSession::parse(r#"{"name":"Player","uuid":"0123456789abcdef0123456789abcdef","access_token":"ely-private","user_type":"ely"}"#).unwrap();
+        assert!(session.ely);
+        assert!(!format!("{session:?}").contains("ely-private"));
+        assert!(own_textures(&session).is_none());
+        assert!(matches!(
+            fetch_chat_keys(&session),
+            Err(JoinError::Unavailable)
+        ));
+        assert_eq!(join_request(&session,"hash"),serde_json::json!({"accessToken":"ely-private","selectedProfile":"0123456789abcdef0123456789abcdef","serverId":"hash"}).to_string());
     }
 
     #[test]

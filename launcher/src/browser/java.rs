@@ -7,7 +7,7 @@
 //!
 //! Installing copies the carried-over folder mod into `horizon-mods/<mod id>/` beside
 //! `options.txt` and turns it on in `horizon-mods.txt`, where the game's Options > Mods reads it.
-use super::{installed::Entry, pick, FileRef, Kind, Project, Source, Support, Version};
+use super::{FileRef, Kind, Project, Source, Support, Version, installed::Entry, pick};
 use horizon_port_pack::check::{self, Check, Verdict};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -291,7 +291,14 @@ pub fn remove(home: &Path, entry: &Entry) -> Result<(), String> {
     let Some(id) = entry.file.strip_prefix("horizon-mods/") else {
         return Err(format!("{} isn't in {MODS_DIR}/.", entry.file));
     };
-    match fs::remove_dir_all(home.join(&entry.file)) {
+    let id = id.strip_suffix(".jar").unwrap_or(id);
+    let path = home.join(&entry.file);
+    let removed = if path.is_dir() {
+        fs::remove_dir_all(&path)
+    } else {
+        fs::remove_file(&path)
+    };
+    match removed {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(format!("{}: {e}", entry.file)),

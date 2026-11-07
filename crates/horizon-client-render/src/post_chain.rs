@@ -22,7 +22,6 @@
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
 
 /// `PostChain.MAIN_TARGET_ID`.
 const MAIN: &str = "minecraft:main";
@@ -490,7 +489,7 @@ pub struct Globals {
 
 impl Globals {
     /// The std140 block: `ivec3, float, vec3, float, vec2, int, int`.
-    pub(crate) fn bytes(&self, size: [u32; 2], menu_blur_radius: i32) -> [u8; 48] {
+    fn bytes(&self, size: [u32; 2], menu_blur_radius: i32) -> [u8; 48] {
         let mut out = Vec::with_capacity(48);
         for v in self.camera_block_pos {
             out.extend_from_slice(&v.to_le_bytes());
@@ -540,20 +539,7 @@ pub struct PostEffects {
     blit: Option<Pass>,
     /// The `Globals` block.
     globals: wgpu::Buffer,
-    /// Chains loading on a thread of their own ([`PostEffects::preload`]), for the
-    /// root they load from; `pending` until they arrive.
-    preloading: Option<(PathBuf, mpsc::Receiver<Preloaded>)>,
-    pending: HashSet<String>,
 }
-
-/// A chain [`PostEffects::preload`] loaded, by id.
-type Preloaded = (String, Result<Option<Chain>, String>);
-
-/// The chains a spectated entity applies (`GameRenderer.checkEntityPostEffect`): the
-/// first frame through a creeper's eyes compiled its pipelines, a 0.1-0.9 s freeze on
-/// the Mac mini.
-pub const SPECTATOR_CHAINS: [&str; 3] =
-    ["minecraft:creeper", "minecraft:spider", "minecraft:invert"];
 
 fn resource_path(root: &Path, id: &str) -> PathBuf {
     let (ns, path) = id.split_once(':').unwrap_or(("minecraft", id));
@@ -626,8 +612,6 @@ impl PostEffects {
             bilinear: make(wgpu::FilterMode::Linear),
             chains: HashMap::new(),
             failed: HashSet::new(),
-            preloading: None,
-            pending: HashSet::new(),
             root: PathBuf::new(),
             work: None,
             staging: None,
@@ -648,91 +632,6 @@ impl PostEffects {
             self.root = root.to_owned();
             self.chains.clear();
             self.failed.clear();
-            self.preloading = None;
-            self.pending.clear();
-        }
-    }
-
-    /// Loads the `ids` chains (namespaced) not loaded yet and compiles their pipelines for
-    /// `format`, on a thread of their own: `apply` leaves a chain out until it has
-    /// arrived instead of compiling it in the frame that first asks for it.
-    pub fn preload(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        root: &Path,
-        ids: &[&str],
-        format: wgpu::TextureFormat,
-    ) {
-        self.use_root(root);
-        if self.preloading.is_some() {
-            return;
-        }
-        let ids: Vec<String> = ids
-            .iter()
-            .filter(|id| !self.chains.contains_key(**id) && !self.failed.contains(**id))
-            .map(|id| normalise(id))
-            .collect();
-        if ids.is_empty() {
-            return;
-        }
-        let (tx, rx) = mpsc::channel();
-        let (device, queue, root) = (device.clone(), queue.clone(), root.to_owned());
-        let format = format.remove_srgb_suffix();
-        let spawned = std::thread::Builder::new()
-            .name("Post effects".into())
-            .spawn({
-                let ids = ids.clone();
-                move || {
-                    for id in ids {
-                        let mut chain = Self::load(&root, &device, &queue, &id);
-                        if let Ok(Some(chain)) = &mut chain {
-                            for pass in &mut chain.passes {
-                                if let Some(translated) = &mut pass.translated {
-                                    translated.ensure_pipeline(&device, format);
-                                }
-                            }
-                        }
-                        if tx.send((id, chain)).is_err() {
-                            return;
-                        }
-                    }
-                }
-            });
-        if spawned.is_ok() {
-            self.pending.extend(ids);
-            self.preloading = Some((self.root.clone(), rx));
-        }
-    }
-
-    /// Takes the chains `preload` has finished.
-    fn collect_preloaded(&mut self) {
-        let Some((root, rx)) = &self.preloading else {
-            return;
-        };
-        if *root != self.root {
-            self.preloading = None;
-            self.pending.clear();
-            return;
-        }
-        loop {
-            match rx.try_recv() {
-                Ok((id, loaded)) => {
-                    self.pending.remove(&id);
-                    let loaded = loaded.unwrap_or_else(|e| {
-                        log::warn!("Failed to load post effect {id}: {e}");
-                        self.failed.insert(id.clone());
-                        None
-                    });
-                    self.chains.insert(id, loaded);
-                }
-                Err(mpsc::TryRecvError::Empty) => return,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    self.preloading = None;
-                    self.pending.clear();
-                    return;
-                }
-            }
         }
     }
 
@@ -780,12 +679,12 @@ impl PostEffects {
 
     /// `PostChain.load` for the file of `id`: `Ok(None)` when it does not exist.
     fn load(
-        root: &Path,
+        &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         id: &str,
     ) -> Result<Option<Chain>, String> {
-        let Ok(text) = std::fs::read_to_string(resource_path(root, id)) else {
+        let Ok(text) = std::fs::read_to_string(resource_path(&self.root, id)) else {
             return Ok(None);
         };
         let config = Config::parse(&text)?;
@@ -812,18 +711,17 @@ impl PostEffects {
         let mut passes = Vec::new();
         for (n, p) in config.passes.iter().enumerate() {
             let output = index(&p.output).ok_or("a target is missing")?;
-            let pass =
-                match Self::translated_pass(root, device, queue, n, p, output, &index, &mut images)
-                {
-                    Ok(pass) => pass,
-                    Err(e) => match Self::standin_pass(device, queue, n, p, output, &index) {
-                        Ok(pass) => {
-                            log::debug!("post effect {id} pass {n} uses the built-in shaders: {e}");
-                            pass
-                        }
-                        Err(_) => return Err(e),
-                    },
-                };
+            let pass = match self.translated_pass(device, queue, n, p, output, &index, &mut images)
+            {
+                Ok(pass) => pass,
+                Err(e) => match self.standin_pass(device, queue, n, p, output, &index) {
+                    Ok(pass) => {
+                        log::debug!("post effect {id} pass {n} uses the built-in shaders: {e}");
+                        pass
+                    }
+                    Err(_) => return Err(e),
+                },
+            };
             passes.push(pass);
         }
         Ok(Some(Chain {
@@ -839,7 +737,7 @@ impl PostEffects {
     /// A pass over the resources' own GLSL (`PostChain.createPass`).
     #[allow(clippy::too_many_arguments)]
     fn translated_pass(
-        root: &Path,
+        &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         n: usize,
@@ -848,7 +746,7 @@ impl PostEffects {
         index: &dyn Fn(&str) -> Option<usize>,
         images: &mut Vec<(wgpu::Texture, wgpu::TextureView, [u32; 2])>,
     ) -> Result<Pass, String> {
-        let program = crate::post_glsl::translate(root, &p.vertex, &p.fragment)?;
+        let program = crate::post_glsl::translate(&self.root, &p.vertex, &p.fragment)?;
         let mut refs = Vec::new();
         for input in &p.inputs {
             let src = match &input.source {
@@ -863,7 +761,7 @@ impl PostEffects {
                     }
                 }
                 Source::Texture { location } => {
-                    images.push(Self::image(root, device, queue, location)?);
+                    images.push(self.image(device, queue, location)?);
                     Src::Image(images.len() - 1)
                 }
             };
@@ -961,6 +859,7 @@ impl PostEffects {
 
     /// A pass over Horizon's WGSL stand-ins for the vanilla post shaders.
     fn standin_pass(
+        &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         n: usize,
@@ -1012,13 +911,14 @@ impl PostEffects {
 
     /// `textures/effect/<location>.png` as a texture (`PostChain.createPass`'s `TextureInput`).
     fn image(
-        root: &Path,
+        &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         location: &str,
     ) -> Result<(wgpu::Texture, wgpu::TextureView, [u32; 2]), String> {
         let (ns, path) = location.split_once(':').unwrap_or(("minecraft", location));
-        let file = root
+        let file = self
+            .root
             .join("assets")
             .join(ns)
             .join("textures/effect")
@@ -1026,8 +926,6 @@ impl PostEffects {
         let mut decoder = png::Decoder::new(std::io::BufReader::new(
             std::fs::File::open(&file).map_err(|e| format!("{}: {e}", file.display()))?,
         ));
-        // As the other resource-pack images: stb_image never checks chunk CRCs.
-        decoder.ignore_checksums(true);
         decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
         let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
         let mut data = vec![0; reader.output_buffer_size().ok_or("a huge image")?];
@@ -1126,19 +1024,16 @@ impl PostEffects {
         size: [u32; 2],
         depth: Option<&wgpu::TextureView>,
         req: &Request,
-        mut timing: Option<&mut crate::gfx::pack_timing::PassTiming>,
     ) -> bool {
         self.use_root(req.root);
-        self.collect_preloaded();
         let mut applied = Vec::new();
         for effect in req.effects {
             let id = normalise(effect);
-            // A chain still compiling on `preload`'s thread waits for it.
-            if self.failed.contains(&id) || applied.contains(&id) || self.pending.contains(&id) {
+            if self.failed.contains(&id) || applied.contains(&id) {
                 continue;
             }
             if !self.chains.contains_key(&id) {
-                let loaded = match Self::load(&self.root, device, queue, &id) {
+                let loaded = match self.load(device, queue, &id) {
                     Ok(chain) => chain,
                     Err(e) => {
                         log::warn!("Failed to load post effect {id}: {e}");
@@ -1204,7 +1099,6 @@ impl PostEffects {
             (&work.1, size),
             0.0,
             format,
-            timing.as_deref_mut(),
         );
         self.staging = Some(staging);
         for id in &applied {
@@ -1219,7 +1113,6 @@ impl PostEffects {
                 depth,
                 req.menu_blur_radius,
                 format,
-                timing.as_deref_mut(),
             );
             self.chains.insert(id.clone(), Some(chain));
         }
@@ -1233,7 +1126,6 @@ impl PostEffects {
             (target, size),
             0.0,
             format,
-            timing,
         );
         self.blit = Some(blit);
         self.work = Some(work);
@@ -1252,7 +1144,6 @@ impl PostEffects {
         main_depth: Option<&wgpu::TextureView>,
         menu_radius: f32,
         format: wgpu::TextureFormat,
-        mut timing: Option<&mut crate::gfx::pack_timing::PassTiming>,
     ) {
         for pass in &mut chain.passes {
             if let Some(translated) = &mut pass.translated {
@@ -1312,7 +1203,6 @@ impl PostEffects {
             {
                 encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Post effect depth clear"),
-                    timestamp_writes: timing.as_deref_mut().and_then(|t| t.writes("Post clear")),
                     color_attachments: &[],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view,
@@ -1331,7 +1221,6 @@ impl PostEffects {
                 let c = t.clear.map(f64::from);
                 encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Post effect target clear"),
-                    timestamp_writes: timing.as_deref_mut().and_then(|t| t.writes("Post clear")),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &chain.textures[i - 1].1,
                         resolve_target: None,
@@ -1385,7 +1274,6 @@ impl PostEffects {
                     &inputs,
                     (view(pass.output), sizes[pass.output]),
                     format,
-                    timing.as_deref_mut(),
                 );
                 continue;
             }
@@ -1399,7 +1287,6 @@ impl PostEffects {
                 (view(pass.output), sizes[pass.output]),
                 menu_radius,
                 format,
-                timing.as_deref_mut(),
             );
         }
     }
@@ -1416,7 +1303,6 @@ impl PostEffects {
         inputs: &[(&wgpu::TextureView, [u32; 2])],
         output: (&wgpu::TextureView, [u32; 2]),
         format: wgpu::TextureFormat,
-        timing: Option<&mut crate::gfx::pack_timing::PassTiming>,
     ) {
         let Some(pipeline) = translated.pipelines.get(&format) else {
             return;
@@ -1467,7 +1353,6 @@ impl PostEffects {
         });
         let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Post effect pass"),
-            timestamp_writes: timing.and_then(|t| t.writes("Post effect")),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: output.0,
                 resolve_target: None,
@@ -1496,7 +1381,6 @@ impl PostEffects {
         output: (&wgpu::TextureView, [u32; 2]),
         menu_radius: f32,
         format: wgpu::TextureFormat,
-        timing: Option<&mut crate::gfx::pack_timing::PassTiming>,
     ) {
         // SamplerInfo: OutSize, then each input's size.
         let info = [
@@ -1557,7 +1441,6 @@ impl PostEffects {
         });
         let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Post effect pass"),
-            timestamp_writes: timing.and_then(|t| t.writes("Post effect")),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: output.0,
                 resolve_target: None,
@@ -1761,7 +1644,7 @@ mod tests {
     }
 
     fn device() -> Option<(wgpu::Device, wgpu::Queue)> {
-        let instance = crate::gfx::test_gpu::instance();
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&Default::default())).ok()?;
         pollster::block_on(adapter.request_device(&Default::default())).ok()
     }
@@ -1832,7 +1715,6 @@ mod tests {
                 menu_blur_radius: 5.0,
                 globals: Globals::default(),
             },
-            None,
         );
         let buffer = crate::gfx::copy_frame(device, &mut encoder, &frame, [8, 4]);
         queue.submit([encoder.finish()]);
@@ -1963,7 +1845,6 @@ mod tests {
                 menu_blur_radius: 0.0,
                 globals: Globals::default(),
             },
-            None,
         ));
         let buffer = crate::gfx::copy_frame(device, &mut encoder, &frame, [8, 4]);
         queue.submit([encoder.finish()]);
@@ -2032,26 +1913,6 @@ mod tests {
              "output":"minecraft:main",
              "uniforms":{"MineConfig":[{"name":"Scale","type":"float","value":1.0}]}}]}"#,
         );
-        own_glsl(&root);
-        let mut effects = PostEffects::new(&device);
-        let [top, bottom] = run_halves(
-            &device,
-            &queue,
-            &mut effects,
-            &root,
-            &["minecraft:custom".to_owned()],
-        );
-        // Red (1, 0, 0) * the image (0.5, 1, 1) * 0.5 * depth 1, then again * 1: 0.125.
-        let near = |a: u8, b: u8| a.abs_diff(b) <= 3;
-        assert!(near(top[0], 32) && top[1] == 0 && top[3] == 255, "{top:?}");
-        // Green stays below it: 0.5 * 1 * 1.
-        assert!(bottom[0] == 0 && near(bottom[1], 128), "{bottom:?}");
-        assert!(effects.failed.is_empty());
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    /// `core/quad.vsh`, `post/mine.fsh` and the `tint` image of `a_chain_runs_its_own_glsl`.
-    fn own_glsl(root: &Path) {
         let shaders = root.join("assets/minecraft/shaders");
         std::fs::create_dir_all(shaders.join("core")).unwrap();
         std::fs::create_dir_all(shaders.join("post")).unwrap();
@@ -2082,60 +1943,20 @@ mod tests {
             writer.write_image_data(&[128, 255, 255, 255]).unwrap();
         }
         std::fs::write(effect.join("tint.png"), png_bytes).unwrap();
-    }
-
-    /// A chain `preload` loaded arrives with its pipelines compiled on the loading
-    /// thread, and runs as one loaded in its frame does.
-    #[test]
-    fn a_preloaded_chain_arrives_compiled() {
-        let Some((device, queue)) = device() else {
-            return;
-        };
-        let root = scratch(
-            "preloaded",
-            r#"{"targets":{"half":{"width":4,"height":2}},"passes":[
-            {"vertex_shader":"minecraft:core/quad","fragment_shader":"minecraft:post/mine",
-             "inputs":[{"sampler_name":"In","target":"minecraft:main","bilinear":true},
-                       {"sampler_name":"Depth","target":"minecraft:main","use_depth_buffer":true},
-                       {"sampler_name":"Tint","location":"tint","width":1,"height":1}],
-             "output":"half",
-             "uniforms":{"MineConfig":[{"name":"Scale","type":"float","value":0.5}]}},
-            {"vertex_shader":"minecraft:core/quad","fragment_shader":"minecraft:post/mine",
-             "inputs":[{"sampler_name":"In","target":"half"},
-                       {"sampler_name":"Depth","target":"half","use_depth_buffer":true},
-                       {"sampler_name":"Tint","location":"tint","width":1,"height":1}],
-             "output":"minecraft:main",
-             "uniforms":{"MineConfig":[{"name":"Scale","type":"float","value":1.0}]}}]}"#,
-        );
-        own_glsl(&root);
         let mut effects = PostEffects::new(&device);
-        let format = wgpu::TextureFormat::Rgba8Unorm;
-        effects.preload(&device, &queue, &root, &["minecraft:preloaded"], format);
-        assert!(effects.pending.contains("minecraft:preloaded"));
-        let started = std::time::Instant::now();
-        while !effects.pending.is_empty() {
-            assert!(started.elapsed().as_secs() < 60, "the chain never arrived");
-            std::thread::sleep(std::time::Duration::from_millis(1));
-            effects.collect_preloaded();
-        }
-        let chain = effects.chains["minecraft:preloaded"]
-            .as_ref()
-            .expect("loaded");
-        assert!(chain.passes.iter().all(|pass| {
-            pass.translated
-                .as_ref()
-                .is_some_and(|t| t.pipelines.contains_key(&format))
-        }));
         let [top, bottom] = run_halves(
             &device,
             &queue,
             &mut effects,
             &root,
-            &["minecraft:preloaded".to_owned()],
+            &["minecraft:custom".to_owned()],
         );
+        // Red (1, 0, 0) * the image (0.5, 1, 1) * 0.5 * depth 1, then again * 1: 0.125.
         let near = |a: u8, b: u8| a.abs_diff(b) <= 3;
         assert!(near(top[0], 32) && top[1] == 0 && top[3] == 255, "{top:?}");
+        // Green stays below it: 0.5 * 1 * 1.
         assert!(bottom[0] == 0 && near(bottom[1], 128), "{bottom:?}");
+        assert!(effects.failed.is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -2186,16 +2007,20 @@ mod tests {
         {
             return;
         }
+        let mut effects = PostEffects::new(&device);
+        effects.use_root(&root);
         for name in ["blur", "creeper", "invert", "spider"] {
             let id = format!("minecraft:{name}");
             assert!(
-                PostEffects::load(&root, &device, &queue, &id)
-                    .unwrap()
-                    .is_some(),
+                effects.load(&device, &queue, &id).unwrap().is_some(),
                 "{id}"
             );
         }
         // entity_outline needs targets and shaders the world pass has of its own.
-        assert!(PostEffects::load(&root, &device, &queue, "minecraft:entity_outline").is_err());
+        assert!(
+            effects
+                .load(&device, &queue, "minecraft:entity_outline")
+                .is_err()
+        );
     }
 }

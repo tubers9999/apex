@@ -31,10 +31,6 @@ pub fn cube_styles(faces: &[BakedFace]) -> Option<[CubeStyle; 6]> {
             || face.translucent
             || face.quad.tint_index != -1
             || face.quad.light_emission != 0
-            || face.quad.light != [0; 2]
-            || face.quad.color.is_some()
-            || face.quad.ambient_occlusion.is_some()
-            || face.quad.render_type.is_some()
         {
             return None;
         }
@@ -123,7 +119,6 @@ mod tests {
                             layer: 7,
                             opaque: true,
                             translucent: false,
-                            fusion: None,
                         })
                         .collect();
                         let Some(styles) = cube_styles(&faces) else {
@@ -158,7 +153,6 @@ mod tests {
                     layer: 0,
                     opaque: true,
                     translucent: false,
-                    fusion: None,
                 })
                 .collect();
         faces[0].opaque = false;

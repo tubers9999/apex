@@ -561,17 +561,7 @@ impl Game<'_> {
         else {
             return;
         };
-        // The response itself lists the server's available rules; the client
-        // may not own this world's level.dat (including on the server thread).
-        let features = if entries.iter().any(|e| {
-            horizon_client::gamerules::rule(&e.name)
-                .is_some_and(|r| r.name == horizon_client::gamerules::MAX_MINECART_SPEED.name)
-        }) {
-            vec![horizon_client::gamerules::MINECART_IMPROVEMENTS.to_owned()]
-        } else {
-            Vec::new()
-        };
-        let mut rules = horizon_client::gamerules::GameRules::with_features(&features);
+        let mut rules = horizon_client::gamerules::GameRules::default();
         for entry in entries {
             rules.set_string(&entry.name, &entry.value);
         }
@@ -1198,7 +1188,7 @@ impl Game<'_> {
         let PhysicalKey::Code(key) = event.physical_key else {
             return;
         };
-        let ctrl = self.has_control_down_with_quirk();
+        let ctrl = self.keys.contains(&winit::keyboard::KeyCode::ControlLeft);
         let shortcut = self.edit_shortcut(event);
         let types_text = self.types_text();
         let shift = self.has_shift_down();
@@ -1500,6 +1490,23 @@ impl Game<'_> {
     }
     /// Digits typed into the port field (the keyboard, or a controller's
     /// on-screen keyboard), and its backspace.
+    #[cfg(target_os = "android")]
+    pub(super) fn world_options_edit_value(&mut self) -> String {
+        let Some(o) = self.world_options.as_mut() else {
+            return String::new();
+        };
+        if let Some(rules) = o.rules.as_mut().filter(|r| r.typing()) {
+            let mut value = String::new();
+            rules.edit(|b| {
+                b.move_cursor_to_end(false);
+                value = b.value.clone();
+            });
+            value
+        } else {
+            o.port.move_cursor_to_end(false);
+            o.port.value.clone()
+        }
+    }
     pub(super) fn world_options_text(&mut self, text: Option<&str>) {
         if let Some(rules) = self
             .world_options

@@ -24,7 +24,7 @@ use horizon_client::{
     Result,
     creative::Creative,
     gamepad::{self, Button, MenuNav, Rect},
-    hud::{HudBatch, rgba},
+    hud::HudBatch,
     options_ui::{Event, Page},
     osk::{self, Keyboard},
     screen_narrator::InputType,
@@ -63,6 +63,9 @@ struct Pending {
 
 #[derive(Default)]
 pub(super) struct MenuCursor {
+    /// Hardware Android arrows can focus menus before a gameplay profile is enabled.
+    #[cfg(target_os = "android")]
+    pub(super) keyboard_focus: bool,
     /// Where the pad put the pointer (GUI pixels); `None` while the mouse
     /// has it.
     pos: Option<(f32, f32)>,
@@ -112,37 +115,48 @@ pub(super) struct MenuCursor {
     key_restart: Option<u64>,
 }
 
-impl MenuCursor {
-    /// `Screen.clearFocus`: nothing is focused any more, and no click focus
-    /// is kept for the next Tab (`ComponentPath.applyFocus(false)`).
-    fn clear_focus(&mut self) {
-        self.focus = None;
-        self.origin = None;
-        self.slider_edit = false;
-        self.pending = None;
-    }
-}
-
 impl Game<'_> {
     /// A menu, a screen, the title, a sign or a book is open: the pad drives
     /// it instead of the player.
     pub(super) fn pad_in_menu(&self) -> bool {
+        #[cfg(target_os = "android")]
+        let android_hub_open = self.pad.touch_ui.floating_menu
+            || self.pad.touch_ui.preset_dialog.is_some()
+            || self.pad.touch_ui.presets_modal_open
+            || self.pad.touch_ui.custom_input_picker != horizon_client::touch::PickerStep::None;
+        #[cfg(not(target_os = "android"))]
+        let android_hub_open = false;
         self.title.is_some()
             || self.screen != Screen::Playing
             || self.sign_edit.is_some()
             || self.book.is_some()
+            || self.dialog_open()
+            || self.server_packs.prompt.is_some()
+            || self.link_prompt.is_some()
+            || self.touch_editing()
+            || android_hub_open
     }
 
     pub(super) fn gui_scale(&self) -> Option<HudBatch> {
         self.renderer
             .as_ref()
             .map(|r| HudBatch::new([r.config.width, r.config.height]))
+            .or_else(|| {
+                self.window.as_ref().map(|w| {
+                    let s = w.inner_size();
+                    HudBatch::new([s.width, s.height])
+                })
+            })
     }
 
     /// Focus mode is on for the open screen (the keyboard always focuses).
     fn pad_focus_mode(&self) -> bool {
-        self.pad.menu.keyboard
-            || (self.settings.controller.menu_nav == MenuNav::Focus) != self.pad.menu.swapped
+        #[cfg(target_os = "android")]
+        if self.pad.menu.keyboard_focus || self.pad.menu.keyboard {
+            return true;
+        }
+        (cfg!(target_os = "android") && self.settings.keypad.enabled)
+            || ((self.settings.controller.menu_nav == MenuNav::Focus) != self.pad.menu.swapped)
     }
 
     /// Where focus can land: buttons drawn last frame, every registered
@@ -332,14 +346,14 @@ impl Game<'_> {
     /// A click (press and release) at a point, the pointer staying there.
     /// A pointer event of the pad's or the keyboard's, as the window would
     /// send it (marked, so it isn't taken for the real mouse).
-    fn pad_synthetic_event(
+    pub(super) fn pad_synthetic_event(
         &mut self,
         event_loop: &dyn EventLoopCtl,
         id: WindowId,
         event: WindowEvent,
     ) {
         let was = std::mem::replace(&mut self.pad.menu.synthetic, true);
-        self.handle_window_event(event_loop, id, event, super::input_trace::InputOrigin::Game);
+        self.handle_window_event(event_loop, id, event);
         self.pad.menu.synthetic = was;
     }
 
@@ -424,26 +438,6 @@ impl Game<'_> {
             }
             return self.handle_option_events(vec![Event::Changed]);
         }
-        // Splitscreen Setup: A picks up the focused player's tile, then left/right (or LB/RB)
-        // cycle where it goes, A drops it, B puts it back (`split_ui`).
-        if self.screen == Screen::Options && self.ui.options.page() == Page::SplitSetup {
-            let setup = &mut self.ui.options.split_setup;
-            if setup.pad_button(button) {
-                // Dropped or put back: the focus follows the player to its tile.
-                if let Some(rect) = setup.take_refocus() {
-                    let kind = Kind::Button;
-                    self.pad_focus_on(event_loop, Target { rect, kind });
-                }
-                return Ok(());
-            }
-            if button == Button::South
-                && self.pad_focusing()
-                && let Some(focus) = self.pad.menu.focus
-                && self.ui.options.split_setup.pad_pick_up(focus.center())
-            {
-                return Ok(());
-            }
-        }
         // The on-screen keyboard takes every button while it is open.
         if let Some(keyboard) = self.pad.menu.osk.as_mut() {
             if let Some(out) = keyboard.button(button) {
@@ -486,14 +480,6 @@ impl Game<'_> {
             Button::South | Button::West => {
                 self.pad_take_pointer(event_loop);
                 self.pad_pointer_button(event_loop, button == Button::West, true);
-                // A on a text field in pointer mode opens the keyboard, as
-                // in focus mode (not the right click).
-                if button == Button::South
-                    && !self.pad_focusing()
-                    && field_at(&self.pad_targets(), self.cursor)
-                {
-                    self.pad_open_keyboard();
-                }
             }
             // Y in an inventory: a shift-click (quick move).
             Button::North if matches!(self.screen, Screen::Inventory | Screen::Creative) => {
@@ -528,7 +514,7 @@ impl Game<'_> {
                 if all {
                     self.physical_keys.insert(KeyCode::ControlLeft);
                 }
-                let result = self.key_pressed(KeyCode::KeyQ, KeyCode::KeyQ);
+                let result = self.key_pressed(KeyCode::KeyQ);
                 if all && !ctrl {
                     self.physical_keys.remove(&KeyCode::ControlLeft);
                 }
@@ -552,14 +538,6 @@ impl Game<'_> {
     fn pad_step(&mut self, event_loop: &dyn EventLoopCtl, button: Button) {
         if let Some(keyboard) = self.pad.menu.osk.as_mut() {
             keyboard.step(button);
-            return;
-        }
-        // Splitscreen Setup with a player held: the stick cycles it as the D-pad does.
-        if self.screen == Screen::Options
-            && self.ui.options.page() == Page::SplitSetup
-            && self.ui.options.split_setup.holding()
-        {
-            self.ui.options.split_setup.pad_button(button);
             return;
         }
         if self.pad_focus_mode() {
@@ -772,8 +750,25 @@ impl Game<'_> {
             .map_or(0.0, |t| now.duration_since(t).as_secs_f32().min(0.05));
         self.pad.menu.last_poll = Some(now);
         self.key_focus_frame();
-        let in_menu =
-            self.pad_in_menu() && (self.settings.controller.enabled || self.pad.menu.keyboard);
+        let keyboard_focus = {
+            #[cfg(target_os = "android")]
+            {
+                self.pad.menu.keyboard_focus || self.pad.menu.keyboard
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                false
+            }
+        };
+        #[cfg(target_os = "android")]
+        let navigation = !crate::touch_visible() || self.settings.keypad.enabled || keyboard_focus;
+        #[cfg(not(target_os = "android"))]
+        let navigation = true;
+        let in_menu = navigation
+            && self.pad_in_menu()
+            && (self.settings.controller.enabled
+                || keyboard_focus
+                || (cfg!(target_os = "android") && self.settings.keypad.enabled));
         if !in_menu {
             let menu = &mut self.pad.menu;
             menu.keyboard = false;
@@ -784,6 +779,10 @@ impl Game<'_> {
             menu.held = [false; 2];
             menu.focus = None;
             menu.swapped = false;
+            #[cfg(target_os = "android")]
+            {
+                menu.keyboard_focus = false;
+            }
             menu.pending = None;
             menu.nudge = None;
             menu.osk = None;
@@ -805,7 +804,7 @@ impl Game<'_> {
             self.pad.in_use = false;
         }
         // Focus lands on the menu as it opens when the pad was in use.
-        if self.pad.in_use && self.pad.menu.pos.is_none() && self.pad.menu.open_polls == 3 {
+        if self.pad.in_use && self.pad.menu.pos.is_none() && self.pad.menu.open_polls >= 3 {
             self.pad_take_pointer(event_loop);
         }
         let focus_mode = self.pad_focus_mode();
@@ -888,8 +887,9 @@ impl Game<'_> {
                 self.pad_step(event_loop, button);
             }
         }
-        self.pad_auto_keyboard();
-        // Vanilla's keyboard focus leaves the mouse pointer alone.
+        if !cfg!(target_os = "android") {
+            self.pad_auto_keyboard();
+        }
         self.pad_show_os_pointer(self.pad.menu.pos.is_none() || self.pad.menu.keyboard);
     }
 
@@ -983,6 +983,8 @@ impl Game<'_> {
     }
 
     fn pad_show_os_pointer(&mut self, show: bool) {
+        #[cfg(target_os = "android")]
+        let show = show && (!crate::touch_visible() || self.settings.keypad.enabled);
         if self.pad.menu.os_hidden != show {
             return;
         }
@@ -1052,21 +1054,11 @@ impl Game<'_> {
                     || self.ui.options.selected_pad_action.is_some()))
     }
 
-    /// `Screen.clearFocus`, which `Gui.setScreen` runs on the screen it takes
-    /// down: the keyboard's focus belongs to that screen. A key bound to the
-    /// container's own close key can move the focus and close the screen in
-    /// one press (Tab bound to the inventory), and vanilla clears the focus
-    /// before the next frame, so nothing stays highlighted.
-    pub(super) fn pad_clear_focus(&mut self) {
-        self.pad.menu.clear_focus();
-    }
-
     /// A key pressed in a menu, before the screen takes it
     /// (`Screen.keyPressed`): Tab, Shift+Tab and the arrows move the focus,
     /// Enter, Space and keypad Enter press the focused widget; the focused
     /// widget's own keys come first (a text field's caret, a slider's
-    /// value). Whether the key was used; when not, the screen has it (a
-    /// container also has Tab and the arrows once they moved the focus).
+    /// value). Whether the key was used; when not, the screen has it.
     pub(super) fn key_focus_key(&mut self, event_loop: &dyn EventLoopCtl, key: KeyCode) -> bool {
         let Some(nav) = key_focus::nav_of(key, self.has_shift_down()) else {
             return false;
@@ -1151,9 +1143,7 @@ impl Game<'_> {
                 InputType::KeyboardArrow
             });
         }
-        let container =
-            self.title.is_none() && matches!(self.screen, Screen::Inventory | Screen::Creative);
-        !key_focus::passes_on(act, container)
+        true
     }
 
     /// Which screen is open, as far as the keyboard's focus cares.
@@ -1170,7 +1160,7 @@ impl Game<'_> {
             .hash(&mut hasher);
         (self.sign_edit.is_some(), self.book.is_some()).hash(&mut hasher);
         (
-            self.link_prompt.is_some() || self.command_prompt.is_some(),
+            self.link_prompt.is_some(),
             self.server_packs.prompt.is_some(),
         )
             .hash(&mut hasher);
@@ -1344,16 +1334,25 @@ impl Game<'_> {
     /// fields, the LAN port.
     fn pad_typing(&self) -> bool {
         (self.screen == Screen::Chat && self.title.is_none())
+            || self.screen == Screen::CommandBlock
+            || self.block_editor_typing()
             || self.sign_edit.is_some()
             || matches!(self.book, Some(super::books::BookScreen::Edit { .. }))
             || (self.screen == Screen::Creative && self.creative_screen.tab().search)
             || self.recipe_search_focused()
             || self.station_typing()
+            || self.mod_browser_typing()
+            || self.dialog_open()
     }
 
     /// Open the on-screen keyboard over the focused field: Horizon's, or
     /// Steam's on a Steam Deck (`steam://open/keyboard`, which types into
     /// the window like a real keyboard).
+    #[cfg(target_os = "android")]
+    fn pad_open_keyboard(&mut self) {
+        self.android_show_keyboard();
+    }
+    #[cfg(not(target_os = "android"))]
     fn pad_open_keyboard(&mut self) {
         // Without xdg-open (macOS, Windows), Horizon's keyboard instead.
         if gamepad::steam_keyboard(self.settings.controller.keyboard)
@@ -1370,17 +1369,17 @@ impl Game<'_> {
         self.pad.menu.osk = Some(Keyboard::default());
     }
 
-    /// Chat or a sign opened by the pad (either menu mode): the keyboard
-    /// opens with it (once per screen; B closes it for good).
+    /// Chat or a sign opened by the pad in focus mode: the keyboard opens
+    /// with it (once per screen; B closes it for good).
     fn pad_auto_keyboard(&mut self) {
         let menu = &self.pad.menu;
-        if osk_auto_opens(
-            menu.osk.is_some(),
-            menu.osk_dismissed,
-            self.pad.in_use,
-            menu.open_polls,
-            self.screen == Screen::Chat || self.sign_edit.is_some(),
-        ) {
+        if menu.osk.is_none()
+            && !menu.osk_dismissed
+            && self.pad.in_use
+            && menu.open_polls >= 3
+            && self.pad_focus_mode()
+            && (self.screen == Screen::Chat || self.sign_edit.is_some())
+        {
             self.pad.menu.osk_dismissed = true;
             self.pad_open_keyboard();
         }
@@ -1388,12 +1387,13 @@ impl Game<'_> {
 
     /// What a key of the on-screen keyboard does: the same as a typed key in
     /// the field that has focus.
-    fn pad_osk_output(&mut self, out: osk::Output) {
+    pub(super) fn pad_osk_output(&mut self, out: osk::Output) {
         use osk::Output;
         let (key, text) = match &out {
             Output::Text(t) => (None, Some(t.as_str())),
             Output::Backspace => (Some(KeyCode::Backspace), None),
             Output::Enter => (Some(KeyCode::Enter), None),
+            Output::Key(code) => (Some(*code), None),
             Output::Close => {
                 self.pad.menu.osk = None;
                 self.pad.menu.osk_dismissed = true;
@@ -1401,7 +1401,15 @@ impl Game<'_> {
             }
         };
         let backspace = key == Some(KeyCode::Backspace);
-        if self.screen == Screen::Chat && self.title.is_none() {
+        if self.dialog_open() {
+            if let Err(error) = self.dialog_key(key.unwrap_or(KeyCode::Space), None, text) {
+                log::warn!("Dialog keyboard: {error}");
+            }
+        } else if self.screen == Screen::BlockEditor {
+            self.block_editor_ime(key, text);
+        } else if self.screen == Screen::CommandBlock {
+            self.command_block_ime(key, text);
+        } else if self.screen == Screen::Chat && self.title.is_none() {
             match text {
                 Some(t) => self.chat_type(t),
                 None => self.chat_key_code(key.expect("a key"), None),
@@ -1419,6 +1427,10 @@ impl Game<'_> {
         } else if self.recipe_search_focused() {
             if key != Some(KeyCode::Enter) {
                 self.recipe_text(text, backspace);
+            }
+        } else if self.mod_browser_typing() {
+            if key != Some(KeyCode::Enter) {
+                self.mod_browser_text(text, backspace);
             }
         } else if self.station_typing() {
             if key != Some(KeyCode::Enter) {
@@ -1465,10 +1477,16 @@ impl Game<'_> {
     /// The pad's cursor (pointer mode) or focus highlight (focus mode), and
     /// the on-screen keyboard, over everything else.
     pub(super) fn draw_pad_cursor(&self, batch: &mut HudBatch) {
-        if !self.pad_in_menu() {
+        #[cfg(target_os = "android")]
+        let virtual_mouse = self.pad.touch_ui.virtual_mouse;
+        #[cfg(not(target_os = "android"))]
+        let virtual_mouse = false;
+        if !self.pad_in_menu() && !virtual_mouse {
             return;
         }
-        if let Some(keyboard) = &self.pad.menu.osk {
+        if self.pad_in_menu()
+            && let Some(keyboard) = &self.pad.menu.osk
+        {
             let at_top = self
                 .pad
                 .menu
@@ -1480,42 +1498,33 @@ impl Game<'_> {
             ui.finish();
             return;
         }
-        let Some((x, y)) = self.pad.menu.pos else {
+        #[cfg(target_os = "android")]
+        if virtual_mouse {
+            // On Android, the virtual mouse pointer is drawn once at the top of the HUD z-order
+            // in `game.rs` above all touch controls, floating menu, and editor overlays.
+            return;
+        }
+        let pointer = if virtual_mouse {
+            Some(self.cursor)
+        } else {
+            self.pad.menu.pos
+        };
+        let Some((x, y)) = pointer else {
             return;
         };
-        if self.pad_focus_mode()
+        if !virtual_mouse
+            && self.pad_focus_mode()
             && let Some(focus) = self.pad.menu.focus
         {
             self.draw_pad_focus(batch, focus);
             return;
         }
-        // An arrow, outlined, pointing up-left at (x, y).
-        let atlas = &self.gui.atlas;
-        let (x, y) = (x.floor(), y.floor());
-        const ROWS: [u8; 10] = [1, 2, 3, 4, 5, 6, 7, 4, 2, 1];
-        for (i, &w) in ROWS.iter().enumerate() {
-            let row = y + i as f32;
-            batch.fill(
-                atlas,
-                x - 1.0,
-                row,
-                f32::from(w) + 2.0,
-                1.0,
-                rgba(0, 0, 0, 255),
-            );
-        }
-        batch.fill(atlas, x - 1.0, y + 10.0, 2.0, 1.0, rgba(0, 0, 0, 255));
-        for (i, &w) in ROWS.iter().enumerate().skip(1).take(8) {
-            let row = y + i as f32;
-            batch.fill(
-                atlas,
-                x,
-                row,
-                f32::from(w) - 1.0,
-                1.0,
-                rgba(255, 255, 255, 255),
-            );
-        }
+        horizon_client::touch_ui::draw_pointer(
+            batch,
+            &self.gui.atlas,
+            (x, y),
+            self.settings.touch.virtual_mouse_pointer_scale,
+        );
     }
 
     /// The focus highlight, as vanilla's keyboard focus looks: buttons,
@@ -1525,73 +1534,5 @@ impl Game<'_> {
     /// `EditBox`'s highlighted border).
     fn draw_pad_focus(&self, batch: &mut HudBatch, focus: Target) {
         key_focus::draw_outline(&self.gui.atlas, batch, focus);
-    }
-}
-
-/// Whether the keyboard opens by itself over chat or a sign: the pad is in
-/// use and the screen has been open for a few polls, and it is neither
-/// open nor dismissed already. Independent of the menu mode.
-fn osk_auto_opens(
-    osk_open: bool,
-    dismissed: bool,
-    pad_in_use: bool,
-    polls: u32,
-    typing_screen: bool,
-) -> bool {
-    !osk_open && !dismissed && pad_in_use && polls >= 3 && typing_screen
-}
-
-/// Whether a text field in `targets` contains the point `at` (GUI pixels).
-fn field_at(targets: &[Target], at: (f32, f32)) -> bool {
-    targets.iter().any(|t| {
-        let [x, y, w, h] = t.rect;
-        t.kind == Kind::Field && at.0 >= x && at.0 < x + w && at.1 >= y && at.1 < y + h
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keyboard_auto_opens_for_pad_on_typing_screen() {
-        assert!(osk_auto_opens(false, false, true, 3, true));
-        assert!(!osk_auto_opens(false, false, true, 2, true));
-        assert!(!osk_auto_opens(false, false, false, 5, true));
-        assert!(!osk_auto_opens(false, true, true, 5, true));
-        assert!(!osk_auto_opens(true, false, true, 5, true));
-        assert!(!osk_auto_opens(false, false, true, 5, false));
-    }
-
-    #[test]
-    fn clear_focus_leaves_nothing_focused() {
-        let mut menu = MenuCursor {
-            focus: Some(Target {
-                rect: [229.0, 98.0, 20.0, 18.0],
-                kind: Kind::Button,
-            }),
-            origin: Some([229.0, 98.0, 20.0, 18.0]),
-            slider_edit: true,
-            ..MenuCursor::default()
-        };
-        menu.clear_focus();
-        assert!(menu.focus.is_none());
-        assert!(menu.origin.is_none());
-        assert!(!menu.slider_edit);
-    }
-
-    #[test]
-    fn field_hit_test() {
-        let t = |rect, kind| Target { rect, kind };
-        let targets = [
-            t([0.0, 0.0, 50.0, 20.0], Kind::Button),
-            t([10.0, 30.0, 100.0, 20.0], Kind::Field),
-        ];
-        assert!(field_at(&targets, (10.0, 30.0)));
-        assert!(field_at(&targets, (109.0, 49.0)));
-        assert!(!field_at(&targets, (110.0, 40.0)));
-        assert!(!field_at(&targets, (50.0, 29.0)));
-        assert!(!field_at(&targets, (5.0, 5.0)), "a button is not a field");
-        assert!(!field_at(&[], (5.0, 5.0)));
     }
 }

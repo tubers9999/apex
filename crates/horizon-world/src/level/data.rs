@@ -625,20 +625,9 @@ fn set_type(value: &Value, cache: &mut HashMap<String, Arc<str>>) -> Option<SetT
 }
 
 /// Build the block-state registry from the resources' `facts.json` (the
-/// same source the native client uses): the cache folder's snapshot when it
-/// matches the file and this build, the streamed JSON otherwise.
+/// same source the native client uses), streamed.
 pub fn load_registry(root: &Path) -> io::Result<BlockRegistry> {
-    Ok(load_registry_with_flags(root)?.0)
-}
-
-/// [`load_registry`] with each state's `(air, fluid)` columns.
-pub fn load_registry_with_flags(root: &Path) -> io::Result<(BlockRegistry, Vec<(bool, bool)>)> {
-    if let Some(cached) = cache::load_registry(root) {
-        return Ok(cached);
-    }
-    let loaded = BlockRegistry::from_facts_json_with_flags(File::open(root.join("facts.json"))?)?;
-    cache::store_registry(root, &loaded.0, &loaded.1);
-    Ok(loaded)
+    BlockRegistry::from_facts_json(File::open(root.join("facts.json"))?)
 }
 
 pub(super) fn load(registry: &BlockRegistry, root: &Path) -> io::Result<Behaviours> {

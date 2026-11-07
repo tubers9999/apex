@@ -117,13 +117,12 @@ impl Launcher {
         }
         let t = self.theme;
         let path = world.path.clone();
-        let mut panel = div().flex().flex_col().gap(px(6.)).ml(px(62.)).mb(px(6.));
-        let mut head = plate(&t)
+        let mut panel = div()
             .flex()
             .flex_col()
             .gap(px(6.))
-            .px(px(12.))
-            .py(px(8.))
+            .ml(px(62.))
+            .mb(px(6.))
             .child(
                 div()
                     .flex()
@@ -151,20 +150,18 @@ impl Launcher {
                             }),
                     ),
             );
-        let mut failed = None;
         match &self.world_packs.note {
             Some(Ok(m)) => {
-                head = head.child(text(theme::CAPTION).text_color(t.muted).child(m.clone()))
+                panel = panel.child(text(theme::CAPTION).text_color(t.muted).child(m.clone()))
             }
-            Some(Err(e)) => failed = Some(notice(e.clone(), &t)),
+            Some(Err(e)) => panel = panel.child(notice(e.clone(), &t)),
             None => {}
         }
         if self.world_packs.list.is_empty() {
-            head = head.child(text(theme::CAPTION).text_color(t.muted).child(tr(
+            panel = panel.child(text(theme::CAPTION).text_color(t.muted).child(tr(
                 "None yet: drop a data pack .zip on the world, or use Add data pack…",
             )));
         }
-        panel = panel.child(head).children(failed);
         for (i, pack) in self.world_packs.list.clone().into_iter().enumerate() {
             let confirming = self.world_packs.confirm_remove.as_ref() == Some(&pack.file);
             let mut actions = div().flex().items_center().gap(px(6.));

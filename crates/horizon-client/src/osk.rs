@@ -6,11 +6,7 @@
 //! the way typed keys reach it.
 use crate::gamepad::{Button, GlyphStyle};
 use crate::ui_theme::{self, Face, Ui, color};
-
-/// A label of the keyboard: the language table's, or the English text.
-fn tr(key: &str, english: &str) -> String {
-    crate::lang::get_or(key, english)
-}
+use winit::keyboard::KeyCode;
 
 /// What a key press does to the focused field.
 #[derive(Clone, Debug, PartialEq)]
@@ -20,6 +16,9 @@ pub enum Output {
     Enter,
     /// The keyboard closes; the field keeps its text.
     Close,
+    /// A hardware key press, kept for editors that accept more than
+    /// Backspace, Enter and Close (the control editor's key bindings).
+    Key(KeyCode),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -271,6 +270,26 @@ impl Keyboard {
         }
     }
 
+    /// Touch the same key rectangles used by draw, in Ui coordinates.
+    pub fn touch(&mut self, width: f32, height: f32, at_top: bool, p: [f32; 2]) -> Option<Output> {
+        let x0 = ((width - 554.0) / 2.0).round();
+        let y0 = if at_top { 16.0 } else { height - 268.0 - 16.0 };
+        for (r, row) in self.rows().iter().enumerate() {
+            for (c, (_, units)) in row.iter().enumerate() {
+                let (left, _) = Self::span(row, c);
+                let x = x0 + left * 56.0;
+                let y = y0 + r as f32 * 44.0;
+                let w = units * 50.0 + (units - 1.0) * 6.0;
+                if (x..x + w).contains(&p[0]) && (y..y + 38.0).contains(&p[1]) {
+                    self.row = r;
+                    self.col = c;
+                    return self.press();
+                }
+            }
+        }
+        None
+    }
+
     /// Draw the keyboard across the bottom of the screen, or the top when
     /// the field it types into is in the lower half.
     pub fn draw(&self, ui: &mut Ui, at_top: bool, glyphs: GlyphStyle) {
@@ -317,12 +336,12 @@ impl Keyboard {
                 let label = match key {
                     Key::Char(ch) => self.letter(*ch),
                     Key::Shift if self.caps => "CAPS".into(),
-                    Key::Shift => tr("horizon.osk.shift", "Shift"),
+                    Key::Shift => "Shift".into(),
                     Key::Layer if self.symbols => "abc".into(),
                     Key::Layer => "&123".into(),
-                    Key::Space => tr("horizon.osk.space", "Space"),
-                    Key::Backspace => tr("horizon.osk.delete", "Delete"),
-                    Key::Done => tr("gui.done", "Done"),
+                    Key::Space => "Space".into(),
+                    Key::Backspace => "Delete".into(),
+                    Key::Done => "Done".into(),
                 };
                 let lw = ui.measure(Face::Medium, ui_theme::BODY, &label);
                 ui.text_line(
@@ -337,13 +356,13 @@ impl Keyboard {
             }
         }
         let hints = [
-            (Button::South, tr("horizon.osk.type", "Type")),
-            (Button::West, tr("horizon.osk.delete", "Delete")),
-            (Button::North, tr("horizon.osk.space", "Space")),
-            (Button::LeftTrigger, tr("horizon.osk.shift", "Shift")),
-            (Button::RightBumper, tr("horizon.osk.symbols", "Symbols")),
-            (Button::Start, tr("gui.done", "Done")),
-            (Button::East, tr("horizon.osk.close", "Close")),
+            (Button::South, "Type"),
+            (Button::West, "Delete"),
+            (Button::North, "Space"),
+            (Button::LeftTrigger, "Shift"),
+            (Button::RightBumper, "Symbols"),
+            (Button::Start, "Done"),
+            (Button::East, "Close"),
         ];
         let line: Vec<String> = hints
             .iter()
@@ -363,6 +382,19 @@ impl Keyboard {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn touch_uses_the_drawn_keyboard_rectangles() {
+        let mut k = Keyboard::default();
+        assert_eq!(
+            k.touch(1280.0, 720.0, false, [390.0, 490.0]),
+            Some(Output::Text("q".into()))
+        );
+        assert_eq!(
+            k.touch(1280.0, 720.0, false, [840.0, 635.0]),
+            Some(Output::Enter)
+        );
+        assert_eq!(k.touch(1280.0, 720.0, false, [20.0, 20.0]), None);
+    }
 
     #[test]
     fn rows_are_ten_units_wide() {

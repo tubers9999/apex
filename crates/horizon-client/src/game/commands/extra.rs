@@ -160,7 +160,7 @@ fn tr_error(key: &str, args: &[Text]) -> CommandError {
 }
 /// `String.format(Locale.ROOT, "%.2f", v)`.
 fn two_places(v: f64) -> String {
-    super::percent_f(v, 2)
+    format!("{v:.2}")
 }
 /// `Util.getFilenameFormattedDateTime` (`yyyy-MM-dd_HH.mm.ss`, local time).
 fn filename_date_time() -> String {
@@ -305,6 +305,10 @@ impl Game<'_> {
             }
             _ => self.set_camera(None),
         }
+    }
+    /// The eye height the camera follows (`Camera.tick`'s entity).
+    pub(in crate::game) fn camera_eye_height(&self) -> Option<f32> {
+        self.cmds.camera.map(|t| self.target_eye_height(t) as f32)
     }
 
     // ---- /waypoint ------------------------------------------------------
@@ -827,15 +831,18 @@ impl Game<'_> {
                 &[self.target_name(t)],
             ));
         }
-        // The player in place: a guest's own profile while their command runs.
-        let id = horizon_client::lan::playerdata::ints_uuid(self.acting_uuid());
-        let name = self.acting_player_name().to_owned();
+        let [a, b, c, d] = self.level.player_uuid.unwrap_or([0; 4]);
+        let id = (u128::from(a as u32) << 96)
+            | (u128::from(b as u32) << 64)
+            | (u128::from(c as u32) << 32)
+            | u128::from(d as u32);
+        let name = super::super::chat::PLAYER_NAME;
         self.report_resolved_profile(
             "commands.fetchprofile.entity.success",
-            Text::literal(&name),
+            Text::literal(name),
             &ResolvedProfile {
                 id,
-                name,
+                name: name.to_owned(),
                 properties: Vec::new(),
             },
         );
@@ -961,8 +968,11 @@ impl Game<'_> {
             guest_commands: allow,
             force_game_mode: false,
         };
-        // A dedicated server is open from the start (`published` above).
-        let started = self.serving() && self.publish(settings).is_ok();
+        let started = if self.serving() {
+            self.publish(settings).is_ok()
+        } else {
+            self.lan_start(settings).is_ok()
+        };
         if !started {
             return Err(err("commands.publish.failed", &[]));
         }
@@ -1297,4 +1307,18 @@ impl Game<'_> {
         }
     }
 }
-impl Game<'_> {}
+impl Game<'_> {
+    /// The player's profile id: the saved id, else the offline id of the
+    /// player's name.
+    pub(in crate::game) fn player_uuid(&self) -> u128 {
+        self.level.player_uuid.map_or_else(
+            || horizon_protocol::crypto::offline_uuid(super::super::chat::PLAYER_NAME),
+            |[a, b, c, d]| {
+                (u128::from(a as u32) << 96)
+                    | (u128::from(b as u32) << 64)
+                    | (u128::from(c as u32) << 32)
+                    | u128::from(d as u32)
+            },
+        )
+    }
+}

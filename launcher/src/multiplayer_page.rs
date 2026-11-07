@@ -13,11 +13,11 @@ use std::sync::Arc;
 pub(super) struct Multiplayer {
     /// The game folder the list is of, and the list as last read with each picture decoded.
     home: Option<PathBuf>,
-    pub(super) list: Vec<(Server, Option<Arc<Image>>)>,
+    list: Vec<(Server, Option<Arc<Image>>)>,
     fresh: bool,
-    pub(super) adding: bool,
-    pub(super) confirm_remove: Option<usize>,
-    pub(super) error: Option<String>,
+    adding: bool,
+    confirm_remove: Option<usize>,
+    error: Option<String>,
 }
 
 impl Multiplayer {
@@ -28,7 +28,7 @@ impl Multiplayer {
 }
 
 impl Launcher {
-    pub(super) fn load_servers(&mut self, home: PathBuf) {
+    fn load_servers(&mut self, home: PathBuf) {
         if self.multiplayer.home.as_ref() != Some(&home) {
             self.multiplayer = Multiplayer {
                 home: Some(home.clone()),
@@ -59,10 +59,7 @@ impl Launcher {
         self.multiplayer.fresh = true;
     }
 
-    pub(super) fn edit_servers(
-        &mut self,
-        edit: impl FnOnce(&mut server_list::List) -> Result<(), String>,
-    ) {
+    fn edit_servers(&mut self, edit: impl FnOnce(&mut server_list::List) -> Result<(), String>) {
         let Some(home) = self.multiplayer.home.clone() else {
             return;
         };
@@ -99,16 +96,18 @@ impl Launcher {
         let t = self.theme;
         let home = self.selected_instance()?.home.clone();
         self.load_servers(home);
-        let actions = div().child(tab_action("server-add", "Add server", &t).on_click(
-            cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.multiplayer.adding = !this.multiplayer.adding;
-                this.multiplayer.error = None;
-                if this.multiplayer.adding {
-                    this.servers.focus_soon = Some(Field::ServerAddress);
-                }
-                cx.notify();
-            }),
-        ));
+        let actions = div().child(
+            button("server-add", "Add server", Kind::Ghost, &t).on_click(cx.listener(
+                |this, _: &ClickEvent, _, cx| {
+                    this.multiplayer.adding = !this.multiplayer.adding;
+                    this.multiplayer.error = None;
+                    if this.multiplayer.adding {
+                        this.servers.focus_soon = Some(Field::ServerAddress);
+                    }
+                    cx.notify();
+                },
+            )),
+        );
         let mut section = div().flex().flex_col().gap(px(8.));
         if let Some(e) = self.multiplayer.error.clone() {
             section = section.child(notice(e, &t));

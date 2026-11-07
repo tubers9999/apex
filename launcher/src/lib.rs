@@ -3,7 +3,6 @@ pub mod account;
 pub mod agents;
 pub mod backend;
 pub mod browser;
-pub mod build_import;
 pub mod datapacks;
 pub mod desktop;
 pub mod desktop_seams;
@@ -11,13 +10,10 @@ pub mod export;
 #[cfg(unix)]
 pub mod game_app;
 pub mod game_log;
-pub mod github;
 pub mod github_mods;
 pub mod heads;
 pub mod i18n;
 pub mod import;
-#[cfg(windows)]
-pub mod installer;
 pub mod instances;
 pub mod java;
 pub mod java_launch;
@@ -46,5 +42,4 @@ pub mod sources;
 pub mod tailscale;
 pub mod telemetry;
 pub mod themes;
-pub mod wardrobe;
 pub mod worlds;

@@ -19,7 +19,7 @@ def cases():
         [[-1, 0, 0]] * 4, [[1, 0, 0]] * 4,
         [[0, 0, 0], [100, 100, 100], [2, 2, 2], [200, 200, 200]]],
         'cameras': [[0, 0, 0], [0.1, 0.1, 0.1], [1, 0, 0], [-1, 0, 0]]}
-    for count in [0, 1, 2, 64, *[rng.randrange(3, 100) for _ in range(200)]]:
+    for count in [0, 1, 2, 64, 2047, 2048, 2049, 8192, *[rng.randrange(3, 100) for _ in range(200)]]:
         origin = [rng.choice([-30000000, -64, -16, 0, 16, 30000000]) for _ in range(3)]
         # SectionPos packs Y into fewer bits; world-border coordinates apply to X/Z.
         origin[1] = rng.choice([-64, -16, 0, 16, 304])
@@ -52,7 +52,7 @@ def main():
          lab.ROOT / 'mods/horizon/src/test/java/dev/horizonlab/parity/VanillaTranslucencyOracle.java'], 'compile-java')
     vanilla, rust = build / 'vanilla.jsonl', build / 'rust.jsonl'
     run(['java', '-cp', str(classes) + os.pathsep + dependencies, 'dev.horizonlab.parity.VanillaTranslucencyOracle', inputs, vanilla], 'vanilla')
-    run(['cargo', 'run', '--quiet', '--locked', '--profile', args.profile, '-p', 'horizon-client-lib', '--example', 'client_probe', '--', 'translucency_fixture', inputs, rust], 'rust')
+    run(['cargo', 'run', '--quiet', '--locked', '--profile', args.profile, '-p', 'horizon-client', '--example', 'client_probe', '--', 'translucency_fixture', inputs, rust], 'rust')
     expected = [json.loads(line) for line in vanilla.read_text().splitlines()]
     actual = [json.loads(line) for line in rust.read_text().splitlines()]
     assert len(expected) == len(actual), 'case count differs'

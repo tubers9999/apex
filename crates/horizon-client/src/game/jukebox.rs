@@ -4,7 +4,6 @@
 //! signal while playing, the comparator output, and saving.
 use super::Game;
 use horizon_client::{
-    block_entity_item,
     containers::{BlockEntity, Jukebox},
     first_person::Hand,
     items::ItemStack,
@@ -41,16 +40,6 @@ impl Game<'_> {
             self.with_level(|b, level, ticks| {
                 b.set_block(level, ticks, p, new, level_flags::UPDATE_CLIENTS)
             });
-        }
-    }
-    /// `JukeboxBlock.setPlacedBy`: a jukebox placed from an item whose
-    /// `block_entity_data` carries a `RecordItem` keeps that record, so
-    /// `has_record` turns on: the model draws the disc and `useWithoutItem`
-    /// pops it out. Vanilla reads the item's data, after
-    /// `updateCustomBlockEntityTag` has filled the block entity.
-    pub(super) fn jukebox_placed(&mut self, pos: [i32; 3], stack: &ItemStack) {
-        if block_entity_item::carries_record(stack) {
-            self.set_has_record(pos, true);
         }
     }
     /// `onSongChanged`: neighbours (the signal) and comparators.
@@ -143,7 +132,7 @@ impl Game<'_> {
         if !self.creative {
             self.consume_held();
         }
-        self.award_custom_stat("play_record", 1);
+        self.stats.custom("play_record", 1);
         self.world.block_entities.insert(
             (pos[0], pos[1], pos[2]),
             BlockEntity::Jukebox(Jukebox {

@@ -140,7 +140,7 @@ impl Retry {
     }
 }
 impl Tracker {
-    /// The server connected to last (splitscreen players join the same one).
+    /// The server connected to last.
     pub fn address(&self) -> Option<&str> {
         self.address.as_deref()
     }

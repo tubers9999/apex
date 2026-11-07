@@ -1,8 +1,7 @@
 //! Microsoft account sign-in (docs/microsoft-account.md): the OAuth device-code flow, then Xbox
 //! Live, XSTS and the Minecraft services, the game ownership check and the profile. Secrets (the
 //! Microsoft refresh token, the Minecraft access token, the last ownership answer) live in the OS
-//! keychain, or in a file only the player can read where there is none; accounts.json keeps only
-//! names and UUIDs. The game gets the session in a file it
+//! keychain; accounts.json keeps only names and UUIDs. The game gets the session in a file it
 //! reads once (`--session-file`), never on its command line. Tokens never reach logs, errors or
 //! output.
 //!
@@ -12,6 +11,9 @@
 //!
 //! The Azure app (client ID) is Horizon's own and is configuration: `HORIZON_MSA_CLIENT_ID` at
 //! build time, or at run time to override it. Without one, sign-in says it is not configured.
+#[path = "account/ely.rs"]
+pub mod ely;
+#[path = "account/session.rs"]
 pub mod session;
 
 use serde_json::{json, Value};
@@ -23,6 +25,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 /// The keychain service name every secret is stored under.
 pub const SERVICE: &str = "dev.playhorizon.launcher";
 const SCOPE: &str = "XboxLive.signin offline_access";
+#[cfg(target_os = "android")]
+pub const NOT_CONFIGURED: &str =
+    "Microsoft sign-in is coming soon. Until then the game plays offline: single player, \
+     LAN and servers in offline mode work.";
+#[cfg(not(target_os = "android"))]
 pub const NOT_CONFIGURED: &str = "This build of the launcher has no Microsoft sign-in (HORIZON_MSA_CLIENT_ID), so it can't start the game.";
 /// What every Play says while no account in the launcher owns the game.
 pub const NEEDS_OWNER: &str =
@@ -39,9 +46,14 @@ const RENEW_BEFORE: u64 = 3600;
 /// The configured Azure app, if any: the run-time variable wins over the build-time one, and an
 /// empty value means none.
 pub fn client_id() -> Option<String> {
-    std::env::var("HORIZON_MSA_CLIENT_ID")
-        .ok()
-        .or_else(|| option_env!("HORIZON_MSA_CLIENT_ID").map(str::to_owned))
+    configured_client_id(
+        std::env::var("HORIZON_MSA_CLIENT_ID").ok(),
+        option_env!("HORIZON_MSA_CLIENT_ID"),
+    )
+}
+fn configured_client_id(runtime: Option<String>, compiled: Option<&str>) -> Option<String> {
+    runtime
+        .or_else(|| compiled.map(str::to_owned))
         .map(|id| id.trim().to_owned())
         .filter(|id| !id.is_empty())
 }
@@ -76,7 +88,7 @@ impl Endpoints {
 
 /// A request to `url`: the launcher's user agent, a 20 s timeout, and the player's proxy when one
 /// is set (`proxy`), since a sign-in has to get out the way downloads do.
-fn request_to(method: &str, url: &str) -> ureq::Request {
+pub(crate) fn request_to(method: &str, url: &str) -> ureq::Request {
     crate::proxy::agent(
         ureq::AgentBuilder::new()
             .timeout(Duration::from_secs(20))
@@ -89,23 +101,67 @@ fn request_to(method: &str, url: &str) -> ureq::Request {
 
 /// One request's result: the status and the JSON body (empty when there is none). Transport
 /// errors name the service, never the URL's query or the request.
-fn send(request: ureq::Request, body: Option<Body>, service: &str) -> Result<(u16, Value), String> {
-    let result = match body {
-        None => request.call(),
-        Some(Body::Form(fields)) => request.send_form(&fields),
-        Some(Body::Json(value)) => request.set("Accept", "application/json").send_json(value),
-    };
-    let response = match result {
-        Ok(r) => r,
-        Err(ureq::Error::Status(_, r)) => r,
-        Err(ureq::Error::Transport(_)) => {
-            return Err(format!(
-                "Could not reach {service}. Check your internet connection."
-            ));
+fn transient_network(kind: ureq::ErrorKind) -> bool {
+    matches!(
+        kind,
+        ureq::ErrorKind::Dns
+            | ureq::ErrorKind::ConnectionFailed
+            | ureq::ErrorKind::Io
+            | ureq::ErrorKind::ProxyConnect
+    )
+}
+fn contact_error(service: &str, kind: ureq::ErrorKind) -> String {
+    // Only a category is shown. Raw errors can contain URLs or request details.
+    format!("Could not reach {service} ({kind:?}). Check your internet connection.")
+}
+fn send_response(
+    request: ureq::Request,
+    body: Option<&Body<'_>>,
+) -> Result<ureq::Response, ureq::ErrorKind> {
+    // The legacy launcher endpoint has an immediate login_with_xbox fallback.
+    let retry_http = !request.url().ends_with("/launcher/login");
+    for attempt in 0..3u64 {
+        let request = request.clone();
+        let result = match body {
+            None => request.call(),
+            Some(Body::Form(fields)) => request.send_form(fields),
+            Some(Body::Json(value)) => request.set("Accept", "application/json").send_json(value),
+        };
+        match result {
+            Ok(r) => return Ok(r),
+            Err(ureq::Error::Status(status, r)) => {
+                let delay = r
+                    .header("Retry-After")
+                    .and_then(|h| h.parse::<u64>().ok())
+                    .unwrap_or(1 << attempt);
+                if retry_http
+                    && attempt < 2
+                    && (status == 429 || (500..600).contains(&status))
+                    && delay <= 30
+                {
+                    std::thread::sleep(Duration::from_secs(delay.max(1)));
+                    continue;
+                }
+                return Ok(r);
+            }
+            Err(ureq::Error::Transport(e)) => {
+                if attempt < 2 && transient_network(e.kind()) {
+                    std::thread::sleep(Duration::from_secs(1 << attempt));
+                    continue;
+                }
+                return Err(e.kind());
+            }
         }
-    };
+    }
+    unreachable!("bounded attempts always return")
+}
+fn send(request: ureq::Request, body: Option<Body>, service: &str) -> Result<(u16, Value), String> {
+    let response =
+        send_response(request, body.as_ref()).map_err(|kind| contact_error(service, kind))?;
     let status = response.status();
-    let text = response.into_string().unwrap_or_default();
+    let text = response
+        .into_string()
+        .map_err(|_| format!("Could not read the {service} response. Try again."))?;
     Ok((status, serde_json::from_str(&text).unwrap_or(Value::Null)))
 }
 
@@ -124,6 +180,38 @@ fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// Older public Live registrations use a different Microsoft token endpoint.
+pub fn legacy_client(client_id: &str) -> bool {
+    client_id.len() == 16 && client_id.bytes().all(|c| c.is_ascii_hexdigit())
+}
+fn microsoft_endpoint(ep: &Endpoints, client_id: &str, token: bool) -> String {
+    if legacy_client(client_id)
+        && ep.microsoft == "https://login.microsoftonline.com/consumers/oauth2/v2.0"
+    {
+        format!(
+            "https://login.live.com/{}",
+            if token {
+                "oauth20_token.srf"
+            } else {
+                "oauth20_connect.srf"
+            }
+        )
+    } else {
+        format!(
+            "{}/{}",
+            ep.microsoft,
+            if token { "token" } else { "devicecode" }
+        )
+    }
+}
+fn microsoft_scope(client_id: &str) -> &'static str {
+    if legacy_client(client_id) {
+        "service::user.auth.xboxlive.com::MBI_SSL"
+    } else {
+        SCOPE
+    }
+}
+
 // ----- The device-code flow ----------------------------------------------------------------------
 
 /// What the player types at the verification page.
@@ -134,6 +222,7 @@ pub struct DeviceCode {
     pub interval: u64,
     pub expires_at: u64,
     device_code: String,
+    cookies: String,
 }
 
 impl std::fmt::Debug for DeviceCode {
@@ -148,6 +237,7 @@ impl std::fmt::Debug for DeviceCode {
 
 /// The Microsoft tokens; the access token only lasts for the Xbox step.
 pub struct MsTokens {
+    legacy: bool,
     access: String,
     refresh: String,
 }
@@ -162,15 +252,36 @@ pub enum Poll {
     Pending,
     /// The server asked to poll less often: wait 5 s more.
     SlowDown,
+    Retry(u64),
     Done(MsTokens),
 }
 
 pub fn device_code(ep: &Endpoints, client_id: &str) -> Result<DeviceCode, String> {
-    let (status, v) = send(
-        request_to("POST", &format!("{}/devicecode", ep.microsoft)),
-        Some(Body::Form(vec![("client_id", client_id), ("scope", SCOPE)])),
-        "Microsoft",
-    )?;
+    let mut fields = vec![
+        ("client_id", client_id),
+        ("scope", microsoft_scope(client_id)),
+    ];
+    if legacy_client(client_id) {
+        fields.push(("response_type", "device_code"));
+    }
+    let response = send_response(
+        request_to("POST", &microsoft_endpoint(ep, client_id, false)),
+        Some(&Body::Form(fields)),
+    )
+    .map_err(|kind| contact_error("Microsoft", kind))?;
+    let status = response.status();
+    if status == 429 || (500..600).contains(&status) {
+        return Err(format!(
+            "Microsoft is temporarily unavailable (HTTP {status}). Try again later."
+        ));
+    }
+    let cookies = response
+        .all("set-cookie")
+        .iter()
+        .filter_map(|c| c.split(';').next())
+        .collect::<Vec<_>>()
+        .join("; ");
+    let v: Value = response.into_json().unwrap_or(Value::Null);
     match (
         status,
         str_field(&v, "user_code"),
@@ -187,6 +298,7 @@ pub fn device_code(ep: &Endpoints, client_id: &str) -> Result<DeviceCode, String
                 .max(1),
             expires_at: now() + v.get("expires_in").and_then(Value::as_u64).unwrap_or(900),
             device_code,
+            cookies,
         }),
         _ => Err(oauth_error(&v)),
     }
@@ -209,21 +321,43 @@ fn oauth_error(v: &Value) -> String {
 
 /// One poll of the token endpoint while the player signs in.
 pub fn poll(ep: &Endpoints, client_id: &str, code: &DeviceCode) -> Result<Poll, String> {
-    let (status, v) = send(
-        request_to("POST", &format!("{}/token", ep.microsoft)),
-        Some(Body::Form(vec![
-            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-            ("client_id", client_id),
-            ("device_code", &code.device_code),
-        ])),
-        "Microsoft",
-    )?;
+    let body = Body::Form(vec![
+        ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+        ("client_id", client_id),
+        ("device_code", &code.device_code),
+    ]);
+    let response = match send_response(
+        request_to("POST", &microsoft_endpoint(ep, client_id, true)).set("Cookie", &code.cookies),
+        Some(&body),
+    ) {
+        Ok(response) => response,
+        Err(kind) if transient_network(kind) => return Ok(Poll::Retry(0)),
+        Err(kind) => return Err(contact_error("Microsoft", kind)),
+    };
+    let status = response.status();
+    if status == 429 || (500..600).contains(&status) {
+        return Ok(Poll::Retry(
+            response
+                .header("Retry-After")
+                .and_then(|h| h.parse().ok())
+                .unwrap_or(0),
+        ));
+    }
+    let v: Value = match response.into_json() {
+        Ok(value) => value,
+        Err(_) => {
+            return Err("Microsoft returned an unreadable sign-in response. Try again.".into());
+        }
+    };
     match v.get("error").and_then(Value::as_str) {
         Some("authorization_pending") => return Ok(Poll::Pending),
         Some("slow_down") => return Ok(Poll::SlowDown),
         _ => {}
     }
-    ms_tokens(status, &v).map(Poll::Done)
+    ms_tokens(status, &v).map(|mut tokens| {
+        tokens.legacy = legacy_client(client_id);
+        Poll::Done(tokens)
+    })
 }
 
 fn ms_tokens(status: u16, v: &Value) -> Result<MsTokens, String> {
@@ -232,7 +366,11 @@ fn ms_tokens(status: u16, v: &Value) -> Result<MsTokens, String> {
         str_field(v, "access_token"),
         str_field(v, "refresh_token"),
     ) {
-        (200, Some(access), Some(refresh)) => Ok(MsTokens { access, refresh }),
+        (200, Some(access), Some(refresh)) => Ok(MsTokens {
+            legacy: false,
+            access,
+            refresh,
+        }),
         _ => Err(oauth_error(v)),
     }
 }
@@ -252,6 +390,9 @@ pub fn wait_for_sign_in(
             if cancelled() {
                 return Err("Sign-in cancelled.".into());
             }
+            if now() >= code.expires_at {
+                return Err("The sign-in code expired. Start again.".into());
+            }
             std::thread::sleep(Duration::from_millis(100));
         }
         if now() > code.expires_at {
@@ -259,7 +400,14 @@ pub fn wait_for_sign_in(
         }
         match poll(ep, client_id, code)? {
             Poll::Pending => {}
-            Poll::SlowDown => interval += 5,
+            Poll::SlowDown => interval = interval.saturating_add(5),
+            Poll::Retry(after) => {
+                interval = interval
+                    .saturating_mul(2)
+                    .min(60)
+                    .max(after)
+                    .min(code.expires_at.saturating_sub(now()).max(1))
+            }
             Poll::Done(tokens) => return Ok(tokens),
         }
     }
@@ -267,16 +415,19 @@ pub fn wait_for_sign_in(
 
 fn refresh_ms(ep: &Endpoints, client_id: &str, refresh: &str) -> Result<MsTokens, String> {
     let (status, v) = send(
-        request_to("POST", &format!("{}/token", ep.microsoft)),
+        request_to("POST", &microsoft_endpoint(ep, client_id, true)),
         Some(Body::Form(vec![
             ("grant_type", "refresh_token"),
             ("client_id", client_id),
+            ("scope", microsoft_scope(client_id)),
             ("refresh_token", refresh),
-            ("scope", SCOPE),
         ])),
         "Microsoft",
     )?;
-    ms_tokens(status, &v)
+    ms_tokens(status, &v).map(|mut tokens| {
+        tokens.legacy = legacy_client(client_id);
+        tokens
+    })
 }
 
 // ----- Xbox Live, XSTS, Minecraft ----------------------------------------------------------------
@@ -302,6 +453,7 @@ struct Minecraft {
 fn minecraft_login(
     ep: &Endpoints,
     ms_access: &str,
+    legacy: bool,
     progress: &dyn Fn(session::Phase),
 ) -> Result<Minecraft, String> {
     progress(session::Phase::Xbox);
@@ -311,7 +463,7 @@ fn minecraft_login(
             "Properties": {
                 "AuthMethod": "RPS",
                 "SiteName": "user.auth.xboxlive.com",
-                "RpsTicket": format!("d={ms_access}"),
+                "RpsTicket": format!("{}={ms_access}", if legacy {"t"} else {"d"}),
             },
             "RelyingParty": "http://auth.xboxlive.com",
             "TokenType": "JWT",
@@ -364,6 +516,8 @@ fn minecraft_token(ep: &Endpoints, xtoken: &str) -> Result<(String, u64), String
         )),
         "the Minecraft services",
     );
+    // Shared with the Rust 2021 launcher; its edition cannot use let chains.
+    #[allow(clippy::collapsible_if)]
     if let Ok((200, v)) = &launcher {
         if let Some(token) = str_field(v, "access_token") {
             return Ok((token, lifetime(v)));
@@ -421,6 +575,8 @@ fn owns_game(ep: &Endpoints, token: &str) -> Result<bool, String> {
 /// A Minecraft profile, as the launcher shows and remembers it (no secrets).
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Account {
+    #[serde(default)]
+    pub provider: Provider,
     /// The profile UUID without dashes.
     pub uuid: String,
     pub name: String,
@@ -429,6 +585,23 @@ pub struct Account {
     pub skin: Option<(String, String)>,
     #[serde(default)]
     pub cape: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Provider {
+    #[default]
+    Microsoft,
+    Ely,
+}
+impl Account {
+    /// Provider-qualified identity; legacy Microsoft keychain keys stay unchanged.
+    pub fn key(&self) -> String {
+        match self.provider {
+            Provider::Microsoft => self.uuid.clone(),
+            Provider::Ely => format!("ely-{}", self.uuid),
+        }
+    }
 }
 
 /// The profile; none when the account has none (it doesn't own the game, or never made one).
@@ -457,6 +630,7 @@ fn profile(ep: &Endpoints, token: &str) -> Result<Option<Account>, String> {
             .cloned()
     };
     Ok(Some(Account {
+        provider: Default::default(),
         uuid: uuid.replace('-', "").to_lowercase(),
         name,
         skin: active("skins").and_then(|s| {
@@ -474,6 +648,8 @@ fn profile(ep: &Endpoints, token: &str) -> Result<Option<Account>, String> {
 /// What the keychain keeps for one account.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Secrets {
+    #[serde(default)]
+    provider: Provider,
     refresh_token: String,
     #[serde(default)]
     sign_in_required: bool,
@@ -506,7 +682,7 @@ pub fn finish_sign_in_with_progress(
     ms: MsTokens,
     progress: &dyn Fn(session::Phase),
 ) -> Result<(Account, Secrets), String> {
-    let mc = minecraft_login(ep, &ms.access, progress)?;
+    let mc = minecraft_login(ep, &ms.access, ms.legacy, progress)?;
     progress(session::Phase::Ownership);
     if !owns_game(ep, &mc.token)? {
         return Err(DOES_NOT_OWN.into());
@@ -517,8 +693,15 @@ pub fn finish_sign_in_with_progress(
 }
 
 impl Secrets {
+    pub(crate) fn provider(&self) -> Provider {
+        self.provider
+    }
+    pub(crate) fn game_token(&self) -> &str {
+        &self.minecraft_token
+    }
     fn new(refresh_token: String, mc: Minecraft) -> Self {
         Self {
+            provider: Provider::Microsoft,
             refresh_token,
             sign_in_required: false,
             minecraft_token: mc.token,
@@ -553,6 +736,24 @@ fn check_with(
     force: bool,
     progress: &dyn Fn(session::Phase),
 ) -> Check {
+    if account.provider != secrets.provider {
+        return Check::NoAnswer(
+            "The saved account provider does not match this session. Sign in again.".into(),
+            secrets,
+        );
+    }
+    if secrets.sign_in_required {
+        return Check::NoAnswer(SIGN_IN_AGAIN.into(), secrets);
+    }
+    if account.provider == Provider::Ely {
+        return match ely::refresh(account, &secrets) {
+            Ok((account, secrets)) => Check::Owns(account, secrets),
+            Err(error) => {
+                secrets.sign_in_required = error == ely::REFUSED;
+                Check::NoAnswer(error, secrets)
+            }
+        };
+    }
     if secrets.sign_in_required {
         return Check::NoAnswer(SIGN_IN_AGAIN.into(), secrets);
     }
@@ -570,7 +771,7 @@ fn check_with(
         };
         // Microsoft can rotate its refresh credential even if a later service fails.
         secrets.refresh_token = ms.refresh;
-        match minecraft_login(ep, &ms.access, progress) {
+        match minecraft_login(ep, &ms.access, ms.legacy, progress) {
             Ok(mc) => {
                 secrets = Secrets {
                     owns: secrets.owns,
@@ -611,10 +812,34 @@ fn check_with(
     }
 }
 
+/// Android's session adapter preserves a still-valid token without a network request.
+/// Renewal uses the same ownership/profile checks as the desktop launcher.
+#[cfg(any(target_os = "android", test))]
+pub fn fresh(
+    ep: &Endpoints,
+    client_id: &str,
+    account: &Account,
+    secrets: Secrets,
+) -> Result<(Account, Secrets), String> {
+    if account.provider != secrets.provider {
+        return Err("Account and session providers do not match.".into());
+    }
+    if secrets.sign_in_required {
+        return Err(SIGN_IN_AGAIN.into());
+    }
+    if secrets.minecraft_expires_at > now() + RENEW_BEFORE {
+        return Ok((account.clone(), secrets));
+    }
+    match check(ep, Some(client_id), account, secrets) {
+        Check::Owns(account, secrets) => Ok((account, secrets)),
+        Check::DoesNot(_) => Err(DOES_NOT_OWN.into()),
+        Check::NoAnswer(error, _) => Err(error),
+    }
+}
+
 // ----- The keychain --------------------------------------------------------------------------------
 
-/// Where secrets are kept: the OS keychain, a file of the launcher's own when there is none, or
-/// memory in tests.
+/// Where secrets are kept: the OS keychain, or memory in tests and when there is none.
 pub trait SecretStore: Send + Sync {
     fn get(&self, key: &str) -> Result<Option<String>, String>;
     fn set(&self, key: &str, secret: &str) -> Result<(), String>;
@@ -652,230 +877,6 @@ impl SecretStore for MemoryStore {
     }
     fn operations(&self) -> &Mutex<()> {
         &self.1
-    }
-}
-
-/// The secrets file in the launcher's data folder, when no keychain answers (#5095): many Linux
-/// systems run no Secret Service, and sign-ins would otherwise last one run. One JSON object, key
-/// to secret, encrypted with a key of this computer's ([`seal`]), readable and writable by the
-/// player only (0600 on Unix), replaced whole on every write. A lock file beside it keeps each read-modify-replace whole across every launcher and CLI
-/// process. The keychain takes its secrets back at the first start it answers ([`Layered`]).
-pub struct FileStore {
-    path: PathBuf,
-}
-
-/// The secrets file's name in the launcher's data folder.
-pub const SECRETS_FILE: &str = "account-secrets.json";
-
-impl FileStore {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
-
-    /// The launcher's own: [`SECRETS_FILE`] in its data folder.
-    pub fn launcher() -> Self {
-        Self::new(crate::backend::data_dir().join(SECRETS_FILE))
-    }
-
-    fn shown(&self, e: std::io::Error) -> String {
-        format!("{}: {e}", self.path.display())
-    }
-
-    /// Runs `f` holding the file's lock (`account-secrets.lock`): other processes wait.
-    fn locked<T>(&self, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-        self.holding("lock", f)
-    }
-
-    /// Runs `f` holding the lock file `account-secrets.<name>`, made if need be.
-    fn holding<T>(&self, name: &str, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| self.shown(e))?;
-        }
-        let lock = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(self.path.with_extension(name))
-            .map_err(|e| self.shown(e))?;
-        lock.lock().map_err(|e| self.shown(e))?;
-        // Closing the file releases the lock, after `f` whatever it answers.
-        f()
-    }
-
-    /// Whether the file holds a sign-in: not only sign-out marks, and readable.
-    fn holds_secrets(&self) -> bool {
-        self.entries()
-            .is_ok_and(|secrets| secrets.values().any(|secret| secret != SIGNED_OUT))
-    }
-
-    fn read(&self) -> Result<std::collections::BTreeMap<String, String>, String> {
-        match std::fs::read(&self.path) {
-            // Only where the file breaks: serde's own message can quote what the file holds.
-            Ok(bytes) => serde_json::from_slice(&unseal(&bytes).ok_or_else(|| {
-                format!(
-                    "{} can't be read on this computer: it was written on another one, or changed. \
-                     Remove it and sign in again.",
-                    self.path.display()
-                )
-            })?)
-            .map_err(|e| {
-                format!(
-                    "{} can't be read ({:?} error at line {}, column {}).",
-                    self.path.display(),
-                    e.classify(),
-                    e.line(),
-                    e.column()
-                )
-            }),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
-            Err(e) => Err(self.shown(e)),
-        }
-    }
-
-    /// Replaces the file with `secrets` through a temporary file of this write's own beside it, so
-    /// a crash leaves the old file or the new one; removes it when there are none left.
-    fn write(&self, secrets: &std::collections::BTreeMap<String, String>) -> Result<(), String> {
-        if secrets.is_empty() {
-            return match std::fs::remove_file(&self.path) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(self.shown(e)),
-                _ => Ok(()),
-            };
-        }
-        static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let tmp = self
-            .path
-            .with_extension(format!("json.{}.{n}.tmp", std::process::id()));
-        let json = serde_json::to_vec(secrets).map_err(|e| e.to_string())?;
-        let sealed = seal(&json)?;
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let written = options.open(&tmp).and_then(|mut file| {
-            std::io::Write::write_all(&mut file, &sealed)?;
-            file.sync_all()
-        });
-        if let Err(e) = written.and_then(|()| std::fs::rename(&tmp, &self.path)) {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(self.shown(e));
-        }
-        Ok(())
-    }
-
-    /// The file's entry for `key`, if the file is there.
-    fn entry(&self, key: &str) -> Result<Option<String>, String> {
-        if !self.path.exists() {
-            return Ok(None);
-        }
-        self.locked(|| Ok(self.read()?.remove(key)))
-    }
-
-    /// Everything the file holds, if it is there.
-    fn entries(&self) -> Result<std::collections::BTreeMap<String, String>, String> {
-        if !self.path.exists() {
-            return Ok(Default::default());
-        }
-        self.locked(|| self.read())
-    }
-
-    fn put(&self, key: &str, value: &str) -> Result<(), String> {
-        self.locked(|| {
-            let mut secrets = self.read()?;
-            secrets.insert(key.into(), value.into());
-            self.write(&secrets)
-        })
-    }
-
-    /// The keychain took `key`: removes its entry if it still holds `before`, what was read before
-    /// the keychain call. Whether the file still has an entry for it: one another process wrote
-    /// since stays, and is read first.
-    fn settle(&self, key: &str, before: Option<&str>) -> Result<bool, String> {
-        if !self.path.exists() {
-            return Ok(false);
-        }
-        self.locked(|| {
-            let mut secrets = self.read()?;
-            if before.is_some() && secrets.get(key).map(String::as_str) == before {
-                secrets.remove(key);
-                self.write(&secrets)?;
-                return Ok(false);
-            }
-            Ok(secrets.contains_key(key))
-        })
-    }
-}
-
-/// The secrets file's first bytes: format 1, the JSON sealed with ChaCha20-Poly1305 under
-/// [`file_key`], then a random 12-byte nonce and the ciphertext with its tag.
-const SEALED: &[u8] = b"HZSECv1\n";
-
-/// The secrets file's key: this computer's identity (`/etc/machine-id` on Linux, `/etc/hostid` on
-/// FreeBSD) hashed with a constant of the launcher's. The tokens are never on disk in plain text,
-/// and a copy of the file taken off the computer (a backup, a synced home folder) can't be read
-/// elsewhere. On the computer itself, the file's mode (0600) is what keeps other users out.
-fn file_key() -> chacha20poly1305::Key {
-    use sha2::Digest;
-    let mut hash = sha2::Sha256::new();
-    hash.update(b"horizon-launcher account-secrets v1");
-    if let Some(id) = ["/etc/machine-id", "/var/lib/dbus/machine-id", "/etc/hostid"]
-        .iter()
-        .find_map(|path| std::fs::read(path).ok())
-    {
-        hash.update(id.trim_ascii());
-    }
-    hash.finalize()
-}
-
-/// `json` sealed for the secrets file ([`SEALED`]).
-fn seal(json: &[u8]) -> Result<Vec<u8>, String> {
-    use chacha20poly1305::{aead::Aead, KeyInit};
-    let mut nonce = [0u8; 12];
-    getrandom::fill(&mut nonce).map_err(|e| e.to_string())?;
-    let sealed = chacha20poly1305::ChaCha20Poly1305::new(&file_key())
-        .encrypt(&nonce.into(), json)
-        .map_err(|_| "the secrets couldn't be sealed".to_string())?;
-    Ok([SEALED, &nonce, &sealed].concat())
-}
-
-/// What [`seal`] sealed, or `None` for a file in another format, changed, or sealed on another
-/// computer.
-fn unseal(bytes: &[u8]) -> Option<Vec<u8>> {
-    use chacha20poly1305::{aead::Aead, KeyInit};
-    let rest = bytes.strip_prefix(SEALED)?;
-    let (nonce, sealed) = rest.split_at_checked(12)?;
-    let nonce: [u8; 12] = nonce.try_into().ok()?;
-    chacha20poly1305::ChaCha20Poly1305::new(&file_key())
-        .decrypt(&nonce.into(), sealed)
-        .ok()
-}
-
-/// A file entry for an account signed out while the keychain was away: the keychain's copy, if any,
-/// counts as gone, and goes at the first start it answers.
-const SIGNED_OUT: &str = "";
-
-impl SecretStore for FileStore {
-    fn get(&self, key: &str) -> Result<Option<String>, String> {
-        self.locked(|| Ok(self.read()?.remove(key)))
-    }
-    fn set(&self, key: &str, secret: &str) -> Result<(), String> {
-        self.locked(|| {
-            let mut secrets = self.read()?;
-            secrets.insert(key.into(), secret.into());
-            self.write(&secrets)
-        })
-    }
-    fn delete(&self, key: &str) -> Result<(), String> {
-        self.locked(|| {
-            let mut secrets = self.read()?;
-            if secrets.remove(key).is_none() {
-                return Ok(());
-            }
-            self.write(&secrets)
-        })
-    }
-    fn persistent(&self) -> bool {
-        true
     }
 }
 
@@ -1254,235 +1255,40 @@ pub fn no_keychain() -> Option<String> {
     })
 }
 
-/// What a keychain this run stopped asking answers.
-const KEYCHAIN_AWAY: &str =
-    "The keychain didn't answer earlier: sign in again to keep this account.";
-
-/// The keychain, with the secrets file for what it can't keep (#5095). Each call asks both, never a
-/// choice made once: a launcher that wrote to the file while the keychain was away still finds its
-/// secrets after another process handed them to the keychain. Reads take the file's copy first (it
-/// is the newer one), writes go to the keychain and to the file only when it refuses.
-///
-/// The file's lock is never held across a keychain call, which can wait on an unlock prompt: other
-/// processes keep reading and writing the file meanwhile. Every write to the keychain holds a lock of
-/// its own instead (`account-secrets.keychain.lock`), with what it writes read under it, so a hand-over
-/// never puts back a secret another process renewed or signed out since; only keychain writes wait
-/// on a prompt, as they would on the keychain itself. A file entry is only removed if it still holds
-/// what was read before the keychain call, so another process's newer write stays. And once the
-/// keychain refuses or doesn't answer, this run stops asking it (no prompt after a dismissed
-/// prompt), until another process hands it a secret this run saw in the file.
-pub struct Layered {
-    keychain: Box<dyn SecretStore>,
-    file: FileStore,
-    away: std::sync::atomic::AtomicBool,
-    /// What this run saw in the file and didn't hand over itself: put there, read there, or there
-    /// when it started. Gone from the file later, the keychain answers again (another process
-    /// handed it).
-    parked: Mutex<std::collections::HashSet<String>>,
-}
-
-impl Layered {
-    /// Starts by handing the keychain what the file kept while it was away, one secret at a time,
-    /// up to the first it refuses; sign-outs it missed are done there too. Each is read again under
-    /// the keychain's lock: one another process renewed or signed out meanwhile isn't handed over.
-    pub fn new(keychain: Box<dyn SecretStore>, file: FileStore) -> Self {
-        let layered = Self {
-            keychain,
-            file,
-            away: Default::default(),
-            parked: Default::default(),
-        };
-        let keys: Vec<String> = layered
-            .file
-            .entries()
-            .unwrap_or_default()
-            .into_keys()
-            .collect();
-        // Seen before the hand-over starts: whatever another process hands over meanwhile, this
-        // run asks the keychain for it again.
-        layered.parked.lock().unwrap().extend(keys.iter().cloned());
-        for key in keys {
-            let handed = layered.keychain_writes(|| {
-                let Some(secret) = layered.file.entry(&key)? else {
-                    return Ok(());
-                };
-                layered.ask(|keychain| match secret.as_str() {
-                    SIGNED_OUT => keychain.delete(&key),
-                    _ => keychain.set(&key, &secret),
-                })?;
-                layered.unpark(&key, Some(secret))
-            });
-            if handed.is_err() {
-                break;
-            }
-        }
-        layered
-    }
-
-    /// Runs `f`, a write to the keychain and what it reads first, holding the keychain's lock.
-    fn keychain_writes<T>(&self, f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-        self.file.holding("keychain.lock", f)
-    }
-
-    fn is_away(&self) -> bool {
-        self.away.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    /// Asks the keychain unless it was away; an error means it is away for the rest of the run.
-    fn ask<T>(
-        &self,
-        call: impl FnOnce(&dyn SecretStore) -> Result<T, String>,
-    ) -> Result<T, String> {
-        if self.is_away() {
-            return Err(KEYCHAIN_AWAY.into());
-        }
-        let answer = call(self.keychain.as_ref());
-        if answer.is_err() {
-            self.away.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
-        answer
-    }
-
-    /// Puts `value` in the file for `key`, the keychain being away.
-    fn park(&self, key: &str, value: &str) -> Result<(), String> {
-        self.file.put(key, value)?;
-        self.parked.lock().unwrap().insert(key.into());
-        Ok(())
-    }
-
-    /// The keychain took `key`: the file's copy read before goes, unless another process wrote since.
-    /// Still in the file, it stays counted as seen there, so its hand-over by another process is
-    /// noticed.
-    fn unpark(&self, key: &str, before: Option<String>) -> Result<(), String> {
-        let still_there = self.file.settle(key, before.as_deref())?;
-        let mut parked = self.parked.lock().unwrap();
-        if still_there {
-            parked.insert(key.into());
-        } else {
-            parked.remove(key);
-        }
-        Ok(())
-    }
-}
-
-impl SecretStore for Layered {
-    fn get(&self, key: &str) -> Result<Option<String>, String> {
-        match self.file.entry(key)? {
-            Some(secret) if secret == SIGNED_OUT => return Ok(None),
-            Some(secret) => {
-                self.parked.lock().unwrap().insert(key.into());
-                return Ok(Some(secret));
-            }
-            None => {}
-        }
-        // Seen in the file and gone from it: another process handed it to the keychain, which
-        // answers again.
-        if self.is_away() && self.parked.lock().unwrap().remove(key) {
-            self.away.store(false, std::sync::atomic::Ordering::Relaxed);
-        }
-        self.ask(|keychain| keychain.get(key))
-    }
-    fn set(&self, key: &str, secret: &str) -> Result<(), String> {
-        if self.is_away() {
-            return self.park(key, secret);
-        }
-        self.keychain_writes(|| {
-            let before = self.file.entry(key)?;
-            match self.ask(|keychain| keychain.set(key, secret)) {
-                Ok(()) => self.unpark(key, before),
-                Err(_) => self.park(key, secret),
-            }
-        })
-    }
-    fn delete(&self, key: &str) -> Result<(), String> {
-        // The keychain may hold a copy: the mark hides it until it can go.
-        if self.is_away() {
-            return self.park(key, SIGNED_OUT);
-        }
-        self.keychain_writes(|| {
-            let before = self.file.entry(key)?;
-            match self.ask(|keychain| keychain.delete(key)) {
-                Ok(()) => self.unpark(key, before),
-                Err(_) => self.park(key, SIGNED_OUT),
-            }
-        })
-    }
-    fn persistent(&self) -> bool {
-        true
-    }
-}
-
-/// The OS keychain if it answers, else why not.
-fn keychain_or_why() -> Result<Box<dyn SecretStore>, String> {
-    // Unit tests never reach the player's keychain.
-    #[cfg(all(
-        not(test),
-        any(
-            target_os = "linux",
-            target_os = "freebsd",
-            target_os = "macos",
-            target_os = "windows"
-        )
-    ))]
-    {
-        if std::env::var_os("HORIZON_NO_KEYCHAIN").is_some() {
-            return Err("HORIZON_NO_KEYCHAIN is set.".into());
-        }
-        SystemStore.get("probe").map(|_| Box::new(SystemStore) as _)
-    }
-    #[cfg(not(all(
-        not(test),
-        any(
-            target_os = "linux",
-            target_os = "freebsd",
-            target_os = "macos",
-            target_os = "windows"
-        )
-    )))]
-    Err("This system has no keychain.".into())
-}
-
-/// Microsoft sign-ins. Linux and FreeBSD: the Secret Service with the secrets file beside it
-/// ([`Layered`], #5095). macOS and Windows: the keychain if it answers. Memory with
-/// `HORIZON_NO_KEYCHAIN` (the launcher's own tests) or no keychain on macOS and Windows (said in the
-/// UI with [`no_keychain`]).
+/// The keychain if it answers, else memory for this run (said in the UI with [`no_keychain`]).
+/// Never a file of its own: secrets are kept by the system or not at all.
 pub fn store() -> &'static dyn SecretStore {
     static STORE: OnceLock<Box<dyn SecretStore>> = OnceLock::new();
     STORE
         .get_or_init(|| {
-            #[cfg(all(not(test), any(target_os = "linux", target_os = "freebsd")))]
-            if std::env::var_os("HORIZON_NO_KEYCHAIN").is_none() {
-                return Box::new(Layered::new(Box::new(SystemStore), FileStore::launcher()));
-            }
-            keychain_or_why().unwrap_or_else(|why| {
+            #[cfg(all(target_os = "android", not(test)))]
+            return Box::new(crate::secure_store::AndroidStore);
+            // Unit tests never reach the player's keychain.
+            #[cfg(all(
+                not(test),
+                any(
+                    target_os = "linux",
+                    target_os = "freebsd",
+                    target_os = "macos",
+                    target_os = "windows"
+                )
+            ))]
+            {
+                let why = match std::env::var_os("HORIZON_NO_KEYCHAIN") {
+                    Some(_) => "HORIZON_NO_KEYCHAIN is set.".to_string(),
+                    None => match SystemStore.get("probe") {
+                        Ok(_) => return Box::new(SystemStore),
+                        Err(e) => e,
+                    },
+                };
                 let _ = NO_KEYCHAIN_WHY.set(why);
+            }
+            #[cfg(any(not(target_os = "android"), test))]
+            {
                 Box::<MemoryStore>::default()
-            })
+            }
         })
         .as_ref()
-}
-
-/// Secrets never written to a file of the launcher's own, the Tailscale access token (it
-/// administers the player's whole tailnet): the keychain if it answers, else memory for this run.
-/// [`store`] itself on macOS and Windows, where that is what it is.
-pub fn keychain() -> &'static dyn SecretStore {
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-    {
-        static KEYCHAIN: OnceLock<Box<dyn SecretStore>> = OnceLock::new();
-        KEYCHAIN
-            .get_or_init(|| keychain_or_why().unwrap_or_else(|_| Box::<MemoryStore>::default()))
-            .as_ref()
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
-    store()
-}
-
-/// Whether sign-ins sit in the secrets file now, the keychain having refused them (#5095): sign-out
-/// marks alone, or a file that can't be read, don't count.
-pub fn in_secrets_file() -> bool {
-    cfg!(any(target_os = "linux", target_os = "freebsd"))
-        && store().persistent()
-        && FileStore::launcher().holds_secrets()
 }
 
 // ----- Accounts ------------------------------------------------------------------------------------
@@ -1559,14 +1365,16 @@ impl Accounts {
     }
     pub fn selected(&self) -> Option<&Account> {
         let uuid = self.selected.as_ref()?;
-        self.accounts.iter().find(|a| &a.uuid == uuid)
+        self.accounts.iter().find(|a| &a.key() == uuid)
     }
     /// Find an account by name (any case) or UUID (with or without dashes).
     pub fn find(&self, who: &str) -> Option<&Account> {
         let undashed = who.replace('-', "").to_lowercase();
-        self.accounts
-            .iter()
-            .find(|a| a.name.eq_ignore_ascii_case(who) || a.uuid == undashed)
+        self.accounts.iter().find(|a| a.key() == who).or_else(|| {
+            self.accounts
+                .iter()
+                .find(|a| a.name.eq_ignore_ascii_case(who) || a.uuid == undashed)
+        })
     }
     /// Keep a new or renewed account, its secrets in the store, and select it.
     pub fn add(
@@ -1585,12 +1393,15 @@ impl Accounts {
         account: Account,
         secrets: &Secrets,
     ) -> Result<(), String> {
+        if account.provider != secrets.provider {
+            return Err("Account and session providers do not match.".into());
+        }
         store.set(
-            &account.uuid,
+            &account.key(),
             &serde_json::to_string(secrets).map_err(|e| e.to_string())?,
         )?;
-        self.selected = Some(account.uuid.clone());
-        match self.accounts.iter_mut().find(|a| a.uuid == account.uuid) {
+        self.selected = Some(account.key());
+        match self.accounts.iter_mut().find(|a| a.key() == account.key()) {
             Some(a) => *a = account,
             None => self.accounts.push(account),
         }
@@ -1604,13 +1415,17 @@ impl Accounts {
         self.selected()
             .into_iter()
             .chain(self.accounts.iter().filter(|a| Some(*a) != self.selected()))
-            .any(|a| secrets_in(store, &a.uuid).is_some_and(|s| s.owns))
+            .any(|a| {
+                a.provider == Provider::Microsoft
+                    && secrets_in(store, &a.key())
+                        .is_some_and(|s| s.owns && s.provider == Provider::Microsoft)
+            })
     }
 
     /// Who plays now.
     pub fn player(&self) -> Player {
         match (self.selected(), &self.offline_selected) {
-            (Some(a), _) => Player::Microsoft(a.uuid.clone()),
+            (Some(a), _) => Player::Microsoft(a.key()),
             (None, Some(name)) => Player::Offline(name.clone()),
             (None, None) => Player::GameName,
         }
@@ -1633,7 +1448,7 @@ impl Accounts {
     ) -> Result<(), String> {
         match who {
             Player::Microsoft(uuid) => {
-                if !self.accounts.iter().any(|a| a.uuid == uuid) {
+                if !self.accounts.iter().any(|a| a.key() == uuid) {
                     return Err("That account isn't signed in.".into());
                 }
                 self.selected = Some(uuid);
@@ -1715,7 +1530,7 @@ impl Accounts {
 
     /// A renewed profile (its name or skin changed) in place of the old one; who plays stays.
     fn update(&mut self, account: Account) {
-        if let Some(a) = self.accounts.iter_mut().find(|a| a.uuid == account.uuid) {
+        if let Some(a) = self.accounts.iter_mut().find(|a| a.key() == account.key()) {
             *a = account;
         }
     }
@@ -1724,8 +1539,16 @@ impl Accounts {
     /// play only once an account that owns the game is back.
     pub fn remove(&mut self, store: &dyn SecretStore, uuid: &str) -> Result<(), String> {
         let _operation = session::lock(store)?;
+        self.forget_sign_in(store, uuid)
+    }
+    /// Native UI actions must not wait on a background network renewal.
+    pub fn remove_when_idle(&mut self, store: &dyn SecretStore, uuid: &str) -> Result<(), String> {
+        let _operation = session::lock_within(store, Some(Duration::ZERO))?;
+        self.forget_sign_in(store, uuid)
+    }
+    fn forget_sign_in(&mut self, store: &dyn SecretStore, uuid: &str) -> Result<(), String> {
         store.delete(uuid)?;
-        self.accounts.retain(|a| a.uuid != uuid);
+        self.accounts.retain(|a| a.key() != uuid);
         if self.selected.as_deref() == Some(uuid) {
             self.selected = None;
         }
@@ -1779,16 +1602,16 @@ pub fn launch(
 ) -> Result<Launch, NoOwner> {
     let selected = accounts.selected.clone();
     let mut order = accounts.accounts.clone();
-    order.sort_by_key(|a| Some(&a.uuid) != selected.as_ref());
+    order.sort_by_key(|a| Some(&a.key()) != selected.as_ref());
     let mut pass = Launch::default();
     let mut owned = false;
     for account in order {
         if owned {
             break;
         }
-        let plays = Some(&account.uuid) == selected.as_ref();
+        let plays = Some(&account.key()) == selected.as_ref();
         let operation = session::lock(store);
-        let Some(secrets) = secrets_in(store, &account.uuid) else {
+        let Some(secrets) = secrets_in(store, &account.key()) else {
             if plays {
                 pass.offline = Some(format!(
                     "{} is no longer signed in on this computer. Sign in again.",
@@ -1808,31 +1631,36 @@ pub fn launch(
                 if plays {
                     pass.session = Some((renewed.clone(), secrets.clone()));
                 }
-                pass.owner = Some((renewed, secrets.clone()));
+                if renewed.provider == Provider::Microsoft {
+                    pass.owner = Some((renewed, secrets.clone()));
+                }
                 (None, secrets)
             }
             Check::DoesNot(secrets) => (Some(DOES_NOT_OWN.to_string()), secrets),
             Check::NoAnswer(e, secrets) => (Some(e), secrets),
         };
-        owned = secrets.owns;
+        owned = (secrets.provider == Provider::Microsoft
+            && account.provider == Provider::Microsoft
+            && secrets.owns)
+            || (plays && account.provider == Provider::Ely && pass.session.is_some());
         if plays {
             pass.offline = said;
         }
         let after = serde_json::to_string(&secrets).ok();
-        if after != before {
-            if let Some(text) = after {
-                // The game still starts; the player hears why the next launch may ask again.
-                if let Err(e) = store.set(&account.uuid, &text) {
-                    let said = format!(
-                        "{}'s renewed sign-in couldn't be saved in the keychain ({e}): you may \
+        if after != before
+            && let Some(text) = after
+        {
+            // The game still starts; the player hears why the next launch may ask again.
+            if let Err(e) = store.set(&account.key(), &text) {
+                let said = format!(
+                    "{}'s renewed sign-in couldn't be saved in the keychain ({e}): you may \
                          have to sign in again next time.",
-                        account.name
-                    );
-                    if let Ok(mut last) = UNSAVED.lock() {
-                        *last = Some(said.clone());
-                    }
-                    pass.unsaved = Some(said);
+                    account.name
+                );
+                if let Ok(mut last) = UNSAVED.lock() {
+                    *last = Some(said.clone());
                 }
+                pass.unsaved = Some(said);
             }
         }
     }
@@ -1867,6 +1695,9 @@ pub fn write_session_file(
     account: &Account,
     secrets: &Secrets,
 ) -> Result<PathBuf, String> {
+    if account.provider != secrets.provider {
+        return Err("Account and session providers do not match.".into());
+    }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     // Leftovers of games that never started (refused by the game after two minutes anyway).
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -1895,7 +1726,7 @@ pub fn write_session_file(
         "name": account.name,
         "uuid": account.uuid,
         "access_token": secrets.minecraft_token,
-        "user_type": "msa",
+        "user_type": if account.provider == Provider::Ely { "ely" } else { "msa" },
         "xuid": secrets.xuid,
     });
     std::io::Write::write_all(&mut file, body.to_string().as_bytes()).map_err(|e| e.to_string())?;
@@ -1917,13 +1748,13 @@ fn accept_sign_in(
         return Err("Sign-in cancelled.".into());
     }
     if let Some(expected) = expected {
-        if expected.uuid != account.uuid {
+        if expected.key() != account.key() {
             return Err(format!(
                 "Signed in as {} instead of {}. Use the Microsoft account for {} and try again.",
                 account.name, expected.name, expected.name
             ));
         }
-        if accounts.find(&expected.uuid).is_none() {
+        if accounts.find(&expected.key()).is_none() {
             return Err("That account was signed out while sign-in was in progress. Add it again to continue.".into());
         }
     }
@@ -1953,16 +1784,43 @@ pub struct SignIn {
 }
 
 impl SignIn {
+    pub fn start_ely(username: String, password: String, otp: String) -> Self {
+        use std::sync::atomic::Ordering;
+        let state = std::sync::Arc::new(Mutex::new(SignInState::Starting));
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (thread_state, thread_cancel) = (state.clone(), cancel.clone());
+        std::thread::spawn(move || {
+            let result = (|| {
+                let (account, secrets) = ely::authenticate(&username, &password, &otp)?;
+                let store = store();
+                let _operation = session::lock(store)?;
+                let mut accounts = Accounts::load();
+                accept_sign_in(
+                    &mut accounts,
+                    store,
+                    None,
+                    account.clone(),
+                    &secrets,
+                    &|| thread_cancel.load(Ordering::Relaxed),
+                    &|_| {},
+                )?;
+                accounts.save()?;
+                Ok(account)
+            })();
+            *thread_state.lock().unwrap() = SignInState::Done(result);
+        });
+        Self { state, cancel }
+    }
     pub fn start() -> Self {
-        Self::start_expected(None)
+        Self::start_with_client_id(client_id())
     }
-
-    /// Restore this exact Minecraft identity without changing who currently plays.
+    pub fn start_with_client_id(configured_id: Option<String>) -> Self {
+        Self::start_expected(configured_id, None)
+    }
     pub fn start_for(account: Account) -> Self {
-        Self::start_expected(Some(account))
+        Self::start_expected(client_id(), Some(account))
     }
-
-    fn start_expected(expected: Option<Account>) -> Self {
+    fn start_expected(configured_id: Option<String>, expected: Option<Account>) -> Self {
         use std::sync::atomic::Ordering;
         let state = std::sync::Arc::new(Mutex::new(SignInState::Starting));
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1971,7 +1829,7 @@ impl SignIn {
             let set = |s| *thread_state.lock().unwrap() = s;
             let result = (|| {
                 let ep = Endpoints::live();
-                let client_id = client_id().ok_or(NOT_CONFIGURED)?;
+                let client_id = configured_id.ok_or(NOT_CONFIGURED)?;
                 let code = device_code(&ep, &client_id)?;
                 set(SignInState::Code(code.clone()));
                 let ms = wait_for_sign_in(&ep, &client_id, &code, &|| {
@@ -2024,9 +1882,7 @@ pub fn session_for_game(
         &mut accounts,
         offline_without_owner,
     )?;
-    if let Err(e) = accounts.save() {
-        eprintln!("Horizon: the accounts are not saved: {e}");
-    }
+    let _ = accounts.save();
     Ok(session_file(game_home, pass))
 }
 
@@ -2046,9 +1902,7 @@ pub fn session_for_game_as(
         &mut accounts,
         who,
     );
-    if let Err(e) = accounts.save() {
-        eprintln!("Horizon: the accounts are not saved: {e}");
-    }
+    let _ = accounts.save();
     Ok(session_file(game_home, pass?))
 }
 
@@ -2091,6 +1945,7 @@ fn session_file(game_home: &Path, pass: Launch) -> (Option<PathBuf>, Option<Stri
 /// ([`launch`]): the selected account when it owns the game, else one that does. With no answer
 /// from the services, an account that owned it plays with its last token. Mojang's game takes the
 /// token on its command line, as Mojang's launcher gives it; that command is never logged.
+#[cfg(not(target_os = "android"))]
 pub fn java_player() -> Result<crate::java_launch::Player, String> {
     let mut accounts = Accounts::load();
     let player = java_player_with(
@@ -2099,12 +1954,11 @@ pub fn java_player() -> Result<crate::java_launch::Player, String> {
         store(),
         &mut accounts,
     );
-    if let Err(e) = accounts.save() {
-        eprintln!("Horizon: the accounts are not saved: {e}");
-    }
+    let _ = accounts.save();
     player
 }
 
+#[cfg(not(target_os = "android"))]
 fn java_player_with(
     ep: &Endpoints,
     client_id: Option<&str>,
@@ -2114,9 +1968,13 @@ fn java_player_with(
     let pass = launch(ep, client_id, store, accounts).map_err(|e| e.to_string())?;
     let kept = || {
         let order = accounts.selected().into_iter().chain(&accounts.accounts);
-        order
-            .into_iter()
-            .find_map(|a| Some((a.clone(), secrets_in(store, &a.uuid).filter(|s| s.owns)?)))
+        order.into_iter().find_map(|a| {
+            Some((
+                a.clone(),
+                secrets_in(store, &a.key())
+                    .filter(|s| s.owns && s.provider == Provider::Microsoft)?,
+            ))
+        })
     };
     let (account, secrets) = pass
         .session
@@ -2132,4 +1990,5 @@ fn java_player_with(
 }
 
 #[cfg(test)]
+#[path = "account/tests.rs"]
 mod tests;

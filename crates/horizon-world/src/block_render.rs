@@ -11,7 +11,6 @@ use horizon_core::geometry::{Direction, ShapeOp, VoxelShape};
 use std::{
     collections::{BTreeMap, HashMap},
     io,
-    sync::Arc,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,12 +39,10 @@ struct State {
 }
 /// Prepared face geometry and a bounded cache shared across state pairs. Geometry
 /// is deduplicated by the imported immutable shape, not copied for every state.
-/// A clone (each meshing worker keeps one, with its own cache) shares the states
-/// and faces, which never change once made.
 #[derive(Clone)]
 pub struct FaceVisibility {
-    states: Arc<[State]>,
-    faces: Arc<[VoxelShape]>,
+    states: Vec<State>,
+    faces: Vec<VoxelShape>,
     cache: HashMap<(u32, u32), bool>,
 }
 impl FaceVisibility {
@@ -53,8 +50,8 @@ impl FaceVisibility {
     /// answers "unknown render state".
     pub fn empty() -> Self {
         Self {
-            states: Arc::new([]),
-            faces: Arc::new([VoxelShape::empty(), VoxelShape::block()]),
+            states: Vec::new(),
+            faces: vec![VoxelShape::empty(), VoxelShape::block()],
             cache: HashMap::new(),
         }
     }
@@ -143,8 +140,8 @@ impl FaceVisibility {
             });
         }
         Ok(Self {
-            states: states.into(),
-            faces: faces.into(),
+            states,
+            faces,
             cache: HashMap::new(),
         })
     }

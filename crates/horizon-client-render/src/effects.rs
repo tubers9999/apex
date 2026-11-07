@@ -421,33 +421,31 @@ impl StatusFlags {
 
 /// The attribute modifier an effect adds at amplifier 0
 /// (`MobEffect.addAttributeModifier`): (attribute, id, amount, operation).
-/// Each level multiplies the amount (`amplifier + 1`). Vanilla's amounts are
-/// `float` literals widened to the modifier's `double`, so `f64::from` the
-/// `f32` to keep the low digits.
+/// Each level multiplies the amount (`amplifier + 1`).
 pub fn effect_modifier(effect: &str) -> Option<(&'static str, &'static str, f64, &'static str)> {
     match effect {
         "speed" => Some((
             "minecraft:movement_speed",
             "minecraft:effect.speed",
-            f64::from(0.2f32),
+            0.2,
             "add_multiplied_total",
         )),
         "slowness" => Some((
             "minecraft:movement_speed",
             "minecraft:effect.slowness",
-            f64::from(-0.15f32),
+            -0.15,
             "add_multiplied_total",
         )),
         "haste" => Some((
             "minecraft:attack_speed",
             "minecraft:effect.haste",
-            f64::from(0.1f32),
+            0.1,
             "add_multiplied_total",
         )),
         "mining_fatigue" => Some((
             "minecraft:attack_speed",
             "minecraft:effect.mining_fatigue",
-            f64::from(-0.1f32),
+            -0.1,
             "add_multiplied_total",
         )),
         "strength" => Some((

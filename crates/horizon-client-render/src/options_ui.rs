@@ -34,11 +34,6 @@ fn percent(caption: &str, value: f32) -> Text {
 fn on_off(v: bool) -> Text {
     tr(if v { "options.on" } else { "options.off" })
 }
-/// A music track's name as its row shows it: the file, without its folder
-/// (`minecraft:music/game/calm1` -> `calm1`; the group names the situation).
-fn track_name(id: &str) -> &str {
-    id.rsplit('/').next().unwrap_or(id)
-}
 fn chat_px(caption: &str, px: f32) -> Text {
     Text::translate(
         "options.pixel_value",
@@ -65,6 +60,10 @@ const MODEL_PART_KEYS: [&str; 7] = [
 pub(crate) const ACCESSIBILITY_OPTIONS: &[Opt] = &[
     Opt::Narrator,
     Opt::ShowSubtitles,
+    #[cfg(target_os = "android")]
+    Opt::TouchHorizontalMargin,
+    #[cfg(target_os = "android")]
+    Opt::TouchVerticalMargin,
     Opt::HighContrast,
     Opt::MenuBlur,
     Opt::TextBackgroundOpacity,
@@ -94,6 +93,9 @@ pub(crate) const ACCESSIBILITY_OPTIONS: &[Opt] = &[
 /// other platforms just as `InputQuirks.EMULATE_RIGHT_CLICK_WITH_CTRL_KEY`
 /// does in Java.
 pub(crate) fn vanilla_control_options() -> Vec<Opt> {
+    if cfg!(target_os = "android") {
+        return vec![Opt::ToggleCrouch, Opt::ToggleSprint, Opt::AutoJump];
+    }
     let mut options = vec![
         Opt::ToggleCrouch,
         Opt::ToggleSprint,
@@ -123,19 +125,31 @@ pub(crate) const MOUSE_OPTIONS: &[Opt] = &[
 impl Opt {
     /// Keep controls visible while their underlying systems are still missing.
     pub(crate) fn available(self) -> bool {
+        if cfg!(target_os = "android") && self == Opt::GraphicsBackend {
+            return false;
+        }
         !matches!(
             self,
-            // Stored, but there are no blocked players or signed chat yet.
-            Opt::HideMatchedNames
+            Opt::ChatDelay
+                // Stored, but there are no blocked players, signed chat or
+                // chat drafts yet.
+                | Opt::HideMatchedNames
                 | Opt::OnlySecureChat
+                | Opt::SaveChatDrafts
+                | Opt::RotateWithMinecarts
                 // Saved, but no Horizon system reads them yet: no Realms, no
-                // friends list, no directional audio.
+                // friends list, no directional audio, no now-playing toast.
                 | Opt::RealmsNotifications
                 | Opt::InGameNotification
                 | Opt::SharePresence
                 | Opt::DirectionalAudio
-                // Saved, but nothing in rendering reads it yet.
+                | Opt::MusicToast
+                // Saved, but nothing in rendering reads them yet.
+                | Opt::ChunkFade
+                | Opt::ImprovedTransparency
                 | Opt::ChunkBuilder
+                // Saved, but the mouse doesn't read it yet.
+                | Opt::CtrlClickEmulatesRightClick
         )
     }
     fn file_key(self) -> Option<&'static str> {
@@ -177,6 +191,37 @@ impl Opt {
 
     pub(crate) fn caption(self) -> &'static str {
         match self {
+            Opt::TouchMode => "Control scheme",
+            Opt::TouchCrosshairGestures => "Touch gestures",
+            Opt::TouchControlHub => "Control hub button",
+            Opt::TouchUiVibration => "UI vibration",
+            Opt::TouchGameVibration => "Gameplay vibration",
+            Opt::TouchAttackButtonLook => "Look while attacking",
+            Opt::TouchMouseSensitivity => "Virtual mouse sensitivity",
+            Opt::TouchAnalog => "360-degree movement",
+            Opt::TouchCircleSize => "Touch circle size",
+            Opt::TouchAttackSide => "Attack indicator side",
+            Opt::TouchHorizontalMargin => "HUD margins: left / right",
+            Opt::TouchVerticalMargin => "HUD margins: top / bottom",
+            Opt::TouchSensitivity => "Touch sensitivity",
+            Opt::TouchSensitivityHorizontal => "Horizontal sensitivity",
+            Opt::TouchSensitivityVertical => "Vertical sensitivity",
+            Opt::TouchOffhand => "Swap hands button",
+            Opt::TouchShield => "Raise shield with",
+            Opt::TouchButtonScale => "Control button size",
+            Opt::TouchInteract => "Interact button",
+            Opt::TouchLeftHand => "Left handed",
+            Opt::TouchSprintButton => "Sprint button",
+            Opt::TouchSprintToggle => "Toggle sprint button",
+            Opt::TouchInventoryControls => "Controls in inventory",
+            Opt::TouchDynamicJoystick => "Dynamic joystick",
+            Opt::TouchDynamicAreaX => "Dynamic joystick width",
+            Opt::TouchDynamicAreaY => "Dynamic joystick height",
+            Opt::AndroidGyroscope => "Gyroscope aiming",
+            Opt::AndroidGyroSensitivity => "Gyroscope sensitivity",
+            Opt::AndroidInputMode => "Input device",
+            Opt::TouchSwapJumpSneak => "Swap jump / sneak",
+            Opt::TouchAutoSprint => "Auto Sprint",
             Opt::Fov => "options.fov",
             Opt::RenderDistance => "options.renderDistance",
             Opt::SimulationDistance => "options.simulationDistance",
@@ -189,6 +234,7 @@ impl Opt {
             Opt::Volume(_) => "soundCategory.master",
             Opt::SoundDevice => "options.audioDevice",
             Opt::GuiScale => "options.guiScale",
+            Opt::DebugGuiScale => "F3 text scale",
             Opt::ViewBobbing => "options.viewBobbing",
             Opt::Gamma => "options.gamma",
             Opt::MaxFps => "options.framerateLimit",
@@ -289,7 +335,6 @@ impl Opt {
                 "options.modelPart.right_pants_leg",
                 "options.modelPart.hat",
             ][i],
-            Opt::SkinLayers3d => "horizon.options.three_d_skin_layers",
             Opt::MainHand => "options.mainHand",
             Opt::AllowServerListing => "options.allowServerListing",
             Opt::RealmsNotifications => "options.realmsNotifications.button",
@@ -310,6 +355,18 @@ impl Opt {
             | Opt::GlintSpeed
             | Opt::GlintStrength
             | Opt::PanoramaSpeed => Kind::Slider(s.file.double(self.file_key().unwrap()) as f32),
+            Opt::TouchCircleSize => unit(s.touch.circle_size, 16.0, 64.0),
+            Opt::TouchDynamicAreaX => unit(s.touch.dynamic_area_x, 0.0, 1.0),
+            Opt::TouchDynamicAreaY => unit(s.touch.dynamic_area_y, 0.0, 1.0),
+            Opt::TouchHorizontalMargin => unit(s.touch.horizontal_margin, 0.0, 0.12),
+            Opt::TouchVerticalMargin => unit(s.touch.vertical_margin, 0.0, 0.12),
+            Opt::DebugGuiScale => unit(s.file.int("debugGuiScale").max(0) as f32, 0.0, 6.0),
+            Opt::AndroidGyroSensitivity => unit(s.touch.gyro_sensitivity, 0.1, 3.0),
+            Opt::TouchSensitivity => unit(s.touch.sensitivity, 0.1, 3.0),
+            Opt::TouchSensitivityHorizontal => unit(s.touch.sensitivity_horizontal, 0.1, 3.0),
+            Opt::TouchSensitivityVertical => unit(s.touch.sensitivity_vertical, 0.1, 3.0),
+            Opt::TouchMouseSensitivity => unit(s.touch.virtual_mouse_sensitivity, 0.25, 3.0),
+            Opt::TouchButtonScale => unit(s.touch.button_scale, 0.5, 2.0),
             Opt::Fov => unit(s.fov, 30.0, 110.0),
             Opt::RenderDistance => unit(
                 s.render_distance as f32,
@@ -452,6 +509,132 @@ impl Opt {
     /// The widget message (OptionInstance.toString / CycleButton full name).
     pub fn label(self, s: &Settings) -> Text {
         let c = self.caption();
+        let touch_value = match self {
+            Opt::TouchMode => Some(
+                crate::touch::Mode::SCHEMES
+                    .iter()
+                    .find(|(mode, split, _)| {
+                        *mode == s.touch.mode
+                            && (!matches!(mode, crate::touch::Mode::Dpad | crate::touch::Mode::Tap)
+                                || *split == s.touch.split_controls)
+                    })
+                    .map_or("Joystick & aim crosshair", |(_, _, label)| *label)
+                    .to_owned(),
+            ),
+            Opt::TouchCircleSize => Some(format!("{} px", s.touch.circle_size.round())),
+            Opt::TouchAttackSide => Some(
+                if s.touch.attack_indicator_left {
+                    "Left"
+                } else {
+                    "Right"
+                }
+                .into(),
+            ),
+            Opt::TouchHorizontalMargin => {
+                Some(format!("{:.1}%", s.touch.horizontal_margin * 100.0))
+            }
+            Opt::TouchVerticalMargin => Some(format!("{:.1}%", s.touch.vertical_margin * 100.0)),
+            Opt::DebugGuiScale => Some(match s.file.int("debugGuiScale") {
+                n if n <= 0 => "Auto".into(),
+                n => format!("{n}x"),
+            }),
+            Opt::AndroidGyroscope => Some(if s.touch.gyroscope { "ON" } else { "OFF" }.into()),
+            Opt::AndroidGyroSensitivity => {
+                Some(format!("{:.0}%", s.touch.gyro_sensitivity * 100.0))
+            }
+            Opt::TouchSensitivity => Some(format!("{:.0}%", s.touch.sensitivity * 100.0)),
+            Opt::TouchSensitivityHorizontal => {
+                Some(format!("{:.0}%", s.touch.sensitivity_horizontal * 100.0))
+            }
+            Opt::TouchSensitivityVertical => {
+                Some(format!("{:.0}%", s.touch.sensitivity_vertical * 100.0))
+            }
+            Opt::TouchOffhand => Some(if s.touch.offhand_button { "On" } else { "Off" }.into()),
+            Opt::TouchShield => Some(
+                if s.touch.shield_button {
+                    "Button"
+                } else {
+                    "Sneak"
+                }
+                .into(),
+            ),
+            Opt::TouchMouseSensitivity => {
+                Some(format!("{:.0}%", s.touch.virtual_mouse_sensitivity * 100.0))
+            }
+            Opt::TouchAttackButtonLook => Some(
+                if s.touch.attack_button_look {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+                .into(),
+            ),
+            Opt::TouchControlHub => Some(
+                if s.touch.show_control_hub {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+                .into(),
+            ),
+            Opt::TouchUiVibration => Some(if s.touch.ui_vibrate { "ON" } else { "OFF" }.into()),
+            Opt::TouchGameVibration => Some(if s.touch.vibrate { "ON" } else { "OFF" }.into()),
+            Opt::TouchCrosshairGestures => Some(
+                if s.touch.crosshair_gestures {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+                .into(),
+            ),
+            Opt::TouchButtonScale => Some(format!("{:.0}%", s.touch.button_scale * 100.0)),
+            Opt::TouchAnalog => Some(if s.touch.analog_movement { "ON" } else { "OFF" }.into()),
+            Opt::TouchInteract => Some(
+                if s.touch.contextual_interact {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+                .into(),
+            ),
+            Opt::TouchLeftHand => Some(if s.touch.left_handed { "ON" } else { "OFF" }.into()),
+            Opt::TouchSprintButton => Some(if s.touch.sprint_button { "ON" } else { "OFF" }.into()),
+            Opt::TouchSprintToggle => Some(if s.touch.sprint_toggle { "ON" } else { "OFF" }.into()),
+            Opt::TouchInventoryControls => Some(
+                if s.touch.inventory_controls {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+                .into(),
+            ),
+            Opt::TouchDynamicJoystick => Some(
+                if s.touch.dynamic_joystick {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+                .into(),
+            ),
+            Opt::TouchDynamicAreaX => Some(format!("{:.0}%", s.touch.dynamic_area_x * 100.0)),
+            Opt::TouchDynamicAreaY => Some(format!("{:.0}%", s.touch.dynamic_area_y * 100.0)),
+            Opt::AndroidInputMode => Some(crate::android_runtime::input_mode().label().into()),
+            Opt::TouchSwapJumpSneak => {
+                Some(if s.touch.swap_jump_sneak { "ON" } else { "OFF" }.into())
+            }
+            Opt::TouchAutoSprint => Some(
+                if s.touch.sprint_with_joystick {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+                .into(),
+            ),
+            _ => None,
+        };
+        if let Some(value) = touch_value {
+            return Text::literal(format!("{c}: {value}"));
+        }
         match self {
             Opt::ChatDelay => tr("options.chat.delay_none"),
             Opt::FovEffects
@@ -684,11 +867,17 @@ impl Opt {
                 "options.textureFiltering.rgss",
                 "options.textureFiltering.anisotropic",
             ][s.file.int("textureFiltering").clamp(0, 2) as usize]),
-            Opt::GraphicsBackend => tr(match s.horizon.api {
-                crate::graphics::GraphicsApi::OpenGl => "options.graphicsApi.opengl",
-                crate::graphics::GraphicsApi::Vulkan => "options.graphicsApi.vulkan",
-                _ => "options.graphicsApi.default",
-            }),
+            Opt::GraphicsBackend => tr(
+                match if cfg!(target_os = "android") {
+                    crate::android_runtime::graphics_api()
+                } else {
+                    s.horizon.api
+                } {
+                    crate::graphics::GraphicsApi::OpenGl => "options.graphicsApi.opengl",
+                    crate::graphics::GraphicsApi::Vulkan => "options.graphicsApi.vulkan",
+                    _ => "options.graphicsApi.default",
+                },
+            ),
             Opt::SmoothLighting => on_off(s.smooth_lighting),
             Opt::Clouds => tr(match s.clouds.as_str() {
                 "false" => "options.off",
@@ -729,11 +918,6 @@ impl Opt {
                 "options.key.toggle"
             } else {
                 "options.key.hold"
-            }),
-            Opt::SkinLayers3d => tr(if s.three_d_skin_layers {
-                "options.on"
-            } else {
-                "options.off"
             }),
             Opt::ToggleAttack => tr(if s.toggle_attack {
                 "options.key.toggle"
@@ -816,6 +1000,21 @@ impl Opt {
         let v = v.clamp(0.0, 1.0);
         let step = |lo: f32, hi: f32| (lo + v * (hi - lo)).round();
         match self {
+            Opt::TouchCircleSize => s.touch.circle_size = step(16.0, 64.0),
+            Opt::TouchDynamicAreaX => s.touch.dynamic_area_x = (v * 100.0).round() / 100.0,
+            Opt::TouchDynamicAreaY => s.touch.dynamic_area_y = (v * 100.0).round() / 100.0,
+            Opt::TouchHorizontalMargin => s.touch.horizontal_margin = (v * 120.0).round() / 1000.0,
+            Opt::TouchVerticalMargin => s.touch.vertical_margin = (v * 120.0).round() / 1000.0,
+            Opt::DebugGuiScale => s.file.set(
+                "debugGuiScale",
+                crate::options_file::V::Int(step(0.0, 6.0) as i32),
+            ),
+            Opt::AndroidGyroSensitivity => s.touch.gyro_sensitivity = 0.1 + v * 2.9,
+            Opt::TouchSensitivity => s.touch.sensitivity = 0.1 + v * 2.9,
+            Opt::TouchSensitivityHorizontal => s.touch.sensitivity_horizontal = 0.1 + v * 2.9,
+            Opt::TouchSensitivityVertical => s.touch.sensitivity_vertical = 0.1 + v * 2.9,
+            Opt::TouchMouseSensitivity => s.touch.virtual_mouse_sensitivity = 0.25 + v * 2.75,
+            Opt::TouchButtonScale => s.touch.button_scale = 0.5 + v * 1.5,
             Opt::FovEffects | Opt::DarknessPulsing => s.file.set(
                 self.file_key().unwrap(),
                 crate::options_file::V::Double(f64::from(v).powi(2)),
@@ -915,6 +1114,48 @@ impl Opt {
             }
         };
         match self {
+            Opt::TouchMode => {
+                let i = crate::touch::Mode::SCHEMES
+                    .iter()
+                    .position(|(mode, split, _)| {
+                        *mode == s.touch.mode
+                            && (!matches!(mode, crate::touch::Mode::Dpad | crate::touch::Mode::Tap)
+                                || *split == s.touch.split_controls)
+                    })
+                    .unwrap_or(0);
+                let (mode, split, _) = crate::touch::Mode::SCHEMES
+                    [usize::from(next(i as u8, crate::touch::Mode::SCHEMES.len() as u8))];
+                s.touch.mode = mode;
+                s.touch.split_controls = split;
+            }
+            Opt::AndroidGyroscope => s.touch.gyroscope ^= true,
+            Opt::TouchAnalog => s.touch.analog_movement ^= true,
+            Opt::TouchInteract => s.touch.contextual_interact ^= true,
+            Opt::TouchOffhand => s.touch.offhand_button ^= true,
+            Opt::TouchShield => s.touch.shield_button ^= true,
+            Opt::TouchLeftHand => s.touch.left_handed ^= true,
+            Opt::TouchSprintButton => s.touch.sprint_button ^= true,
+            Opt::TouchSprintToggle => s.touch.sprint_toggle ^= true,
+            Opt::TouchInventoryControls => s.touch.inventory_controls ^= true,
+            Opt::TouchDynamicJoystick => s.touch.dynamic_joystick ^= true,
+            Opt::TouchCrosshairGestures => s.touch.crosshair_gestures ^= true,
+            Opt::TouchControlHub => s.touch.show_control_hub ^= true,
+            Opt::TouchUiVibration => s.touch.ui_vibrate ^= true,
+            Opt::TouchGameVibration => s.touch.vibrate ^= true,
+            Opt::TouchAttackButtonLook => s.touch.attack_button_look ^= true,
+            Opt::AndroidInputMode => {
+                let all = crate::android_gamepad::InputMode::ALL;
+                let i = all
+                    .iter()
+                    .position(|m| *m == crate::android_runtime::input_mode())
+                    .unwrap_or(0);
+                crate::android_runtime::configure_input(
+                    all[usize::from(next(i as u8, all.len() as u8))],
+                );
+            }
+            Opt::TouchAttackSide => s.touch.attack_indicator_left ^= true,
+            Opt::TouchSwapJumpSneak => s.touch.swap_jump_sneak ^= true,
+            Opt::TouchAutoSprint => s.touch.sprint_with_joystick ^= true,
             Opt::GuiScale => {
                 let max = crate::window::calculate_scale(framebuffer, 0, s.force_unicode) as u32;
                 let value = s.gui_scale.min(max);
@@ -939,7 +1180,6 @@ impl Opt {
             | Opt::RealmsNotifications
             | Opt::InGameNotification
             | Opt::DirectionalAudio
-            | Opt::RotateWithMinecarts
             | Opt::NarratorHotkey => {
                 let key = self.file_key().unwrap();
                 s.file
@@ -1019,7 +1259,6 @@ impl Opt {
             Opt::ChunkBuilder => s.prioritize_chunk_updates = next(s.prioritize_chunk_updates, 3),
             Opt::ToggleCrouch => s.toggle_crouch = !s.toggle_crouch,
             Opt::ToggleSprint => s.toggle_sprint = !s.toggle_sprint,
-            Opt::SkinLayers3d => s.three_d_skin_layers = !s.three_d_skin_layers,
             Opt::ToggleAttack => s.toggle_attack = !s.toggle_attack,
             Opt::ToggleUse => s.toggle_use = !s.toggle_use,
             Opt::AutoJump => s.auto_jump = !s.auto_jump,
@@ -1205,6 +1444,9 @@ fn set_filtering(s: &mut Settings, anisotropy_bit: i32, filtering: i32) {
 /// `Options.preferredGraphicsBackend`'s tooltip: the restart note once the choice differs from
 /// the startup one, the description, and Vulkan's warning.
 fn graphics_api_tooltip(s: &Settings) -> Text {
+    if cfg!(target_os = "android") {
+        return Text::literal("Selected in Horizon Android launcher > Setup.");
+    }
     let line = |key: &str| lang::get_or(key, key);
     let mut lines = Vec::new();
     if s.horizon.api != s.startup_api {
@@ -1253,6 +1495,7 @@ pub enum Page {
     HdrCalibration,
     /// Horizon's controller settings and button binds.
     Controller,
+    Touch,
     PadBinds,
     Extras,
     /// CreditsAndAttributionScreen.
@@ -1268,11 +1511,6 @@ pub enum Page {
     Online,
     /// Splitscreen: the profile another player joins as (`split_profiles`).
     SplitProfiles,
-    /// Splitscreen: the monitor map and draft window arrangement.
-    SplitSetup,
-    /// The built-in music tracks, by situation: play one, turn any off
-    /// (vanilla's `minecraft:audio/background_music` pools).
-    Music,
 }
 #[derive(Clone, Debug, PartialEq)]
 enum Act {
@@ -1284,6 +1522,7 @@ enum Act {
     Key(&'static str),
     ResetKey(&'static str),
     ResetKeys,
+    KeyboardProfile,
     /// Controller binds: wait for a button, reset one, reset all.
     PadKey(&'static str),
     ResetPadKey(&'static str),
@@ -1312,20 +1551,11 @@ enum Act {
     NativeKey(usize, usize),
     NativeButton(usize, usize),
     OpenModFolder,
-    /// Accessibility's "Accessibility Help" link
-    /// (`AccessibilityOptionsScreen.addFooter`'s openLinkButton).
-    AccessibilityHelp,
     /// Credits & Attribution's Credits button (WinScreen without the poem).
     Credits,
     CopyAgentDetails,
-    /// AI Agent: start or stop the repro recording.
-    ToggleRecording,
-    /// AI Agent: write the repro bundle now.
-    ExportRepro,
-    /// The Music page: play this track of this event now.
-    PlayMusicTrack(String, String),
-    /// The Music page: turn this track off, or back on.
-    MusicTrackOn(String, bool),
+    #[cfg(target_os = "android")]
+    TouchControls,
 }
 enum WKind {
     Button {
@@ -1412,9 +1642,6 @@ fn matches_focus(id: &FocusId, i: usize, wd: &Widget) -> bool {
 pub enum Event {
     /// An accepted button press or the release of a slider.
     ButtonClick,
-    /// Horizon's own: download the Modrinth hit at this index of the pack
-    /// screen's browser. The game owns the packs folder, not this screen.
-    DownloadPack(usize),
     /// Close the options screens (back to the pause menu or title).
     Close,
     /// Settings changed: apply and save them.
@@ -1434,14 +1661,14 @@ pub enum Event {
     /// Data Packs' Open Pack Folder: create the folder if needed and open it.
     OpenDataPackFolder(std::path::PathBuf),
     OpenModFolder,
-    /// Accessibility's Help link: confirm and open
-    /// `CommonLinks.ACCESSIBILITY_HELP` over the options screen.
-    AccessibilityHelp,
     /// The Shader Packs page opened: list `shaderpacks/` into `shader_packs`.
     ListShaderPacks,
     /// A shader pack was picked or turned off: save and apply it.
     ShaderPack,
     OpenShaderPackFolder,
+    /// Open the mod's own settings page (capability `ui`): the installed
+    /// mod's index in `mods.installed`.
+    ModSettings(usize),
     /// The Shader Options page opened: read the picked pack's options into `shader_options`.
     OpenShaderOptions,
     /// The Shader Options page closed with changes: save them and load the pack again.
@@ -1459,34 +1686,11 @@ pub enum Event {
     Credits,
     /// Copy how an agent connects (the AI Agent page).
     CopyAgentDetails,
-    /// The AI Agent page's recording button: start or stop.
-    ToggleRecording,
-    /// The AI Agent page's export button.
-    ExportRepro,
+    #[cfg(target_os = "android")]
+    TouchControls,
     /// The narrator option changed (after its `Changed`): the option's
     /// `onValueUpdate`, `GameNarrator.updateNarratorStatus`.
     Narrator,
-    /// The Music page opened: fill `music_groups` from the sound registry
-    /// (the game owns it).
-    ListMusicTracks,
-    /// A Music page row: play this track of this event now.
-    PlayMusicTrack(String, String),
-}
-/// A row of the Music page: the track, and the pool it is played from.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct MusicTrack {
-    /// The music event the track belongs to (`minecraft:music.game`).
-    pub event: String,
-    /// The sound id (`minecraft:music/game/calm1`).
-    pub id: String,
-}
-/// One group of rows on the Music page: a situation, or a dimension's biomes.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct MusicGroup {
-    /// The lang key of the heading the page shows (`horizon.pages.music.overworld`).
-    pub label: String,
-    /// The rows, in `sounds.json` order.
-    pub tracks: Vec<MusicTrack>,
 }
 /// `SliderableValueSet.applyValueImmediately`: these apply 600 ms after
 /// the last change (`OptionInstanceSliderButton.delayedApplyAt`).
@@ -1533,8 +1737,6 @@ pub struct OptionsUi {
     language_choice: Option<String>,
     language_search: ui::EditBox,
     pub(crate) settings_search: ui::EditBox,
-    /// Horizon's `packBrowser` extra: the pack screen's Add button.
-    pub pack_browser: bool,
     /// Packs: the packs found and the selection the screen opens with.
     pub pack_infos: Vec<crate::pack_screen::PackInfo>,
     pub pack_selection: Vec<String>,
@@ -1555,8 +1757,6 @@ pub struct OptionsUi {
     /// (`update_pack_infos`) differs from the settings'.
     pack_reselected: bool,
     pub in_world: bool,
-    /// AccessibilityOptionsScreen: the loaded world's experimental feature.
-    pub minecart_improvements: bool,
     /// Scroll the selected language into the middle on the next layout.
     center_language: bool,
     pub graphics: crate::graphics_ui::GraphicsUi,
@@ -1565,19 +1765,10 @@ pub struct OptionsUi {
     pub calibration: Option<crate::hdr_calibration::Calibration>,
     /// Whether the window was fullscreen before calibration made it so (the game keeps it).
     pub calibration_fullscreen: Option<bool>,
-    pub split_setup: crate::split_ui::SplitUi,
     /// The AI Agent page's status lines (set by the game while it shows).
     pub agent_status: Vec<String>,
-    /// A repro recording is running: the AI Agent page's button says stop.
-    pub agent_recording: bool,
-    /// The Music page's groups (set by the game when it opens the page).
-    pub music_groups: Vec<MusicGroup>,
     /// Keyboard focus: the interactive target currently focused.
     focus: Option<FocusId>,
-    /// The focus came from keyboard or pad navigation, so the mouse wheel steps it
-    /// from anywhere (`wheel`). A click focuses its widget too, for the highlight,
-    /// but vanilla's wheel ignores that: only the hovered widget then reacts.
-    focus_from_keyboard: bool,
     /// Whether a focused slider is in value-editing mode (`AbstractSliderButton.canChangeValue`).
     pub(crate) can_change_value: bool,
     /// The current GUI size (w, h).
@@ -1613,7 +1804,6 @@ impl Default for OptionsUi {
             language_choice: None,
             language_search: search,
             settings_search,
-            pack_browser: false,
             pack_infos: Vec::new(),
             pack_selection: Vec::new(),
             pack_screen: None,
@@ -1624,18 +1814,13 @@ impl Default for OptionsUi {
             pack_focus: Instant::now(),
             pack_reselected: false,
             in_world: false,
-            minecart_improvements: false,
             center_language: false,
             graphics: Default::default(),
             split_profiles: Default::default(),
             calibration: None,
             calibration_fullscreen: None,
-            split_setup: Default::default(),
             agent_status: Vec::new(),
-            agent_recording: false,
-            music_groups: Vec::new(),
             focus: None,
-            focus_from_keyboard: false,
             can_change_value: false,
             size: (427.0, 240.0),
             framebuffer: [1280, 720],
@@ -1666,9 +1851,25 @@ fn inactive(mut w: Widget) -> Widget {
     w
 }
 fn option_widget(s: &Settings, opt: Opt, x: f32, y: f32, w: f32) -> Widget {
-    // OptionsSubScreen.addContents: the narrator button is active only while
-    // the narrator is (`narratorButton.active = narrator.isActive()`).
-    if !opt.available() || opt == Opt::Narrator && !horizon_narrator::is_active() {
+    let touch_available = match opt {
+        Opt::TouchAnalog | Opt::TouchAutoSprint | Opt::TouchDynamicJoystick => {
+            s.touch.mode != crate::touch::Mode::Dpad
+        }
+        Opt::TouchDynamicAreaX | Opt::TouchDynamicAreaY => {
+            s.touch.dynamic_joystick && s.touch.mode != crate::touch::Mode::Dpad
+        }
+        Opt::TouchSprintButton => {
+            s.touch.mode != crate::touch::Mode::Dpad && !s.touch.sprint_with_joystick
+        }
+        Opt::TouchInteract => !s.touch.crosshair(),
+        Opt::TouchCrosshairGestures | Opt::TouchAttackButtonLook => s.touch.crosshair(),
+        Opt::TouchSwapJumpSneak => s.touch.mode == crate::touch::Mode::Dpad,
+        _ => true,
+    };
+    if !opt.available()
+        || !touch_available
+        || opt == Opt::Narrator && !horizon_narrator::is_active()
+    {
         return inactive(button(x, y, w, opt.label(s), Act::Cycle(opt)));
     }
     // VideoSettingsScreen.tick: Max Anisotropy only works with Anisotropic filtering.
@@ -1704,8 +1905,6 @@ fn horizon_page_tooltip(page: Page) -> Option<&'static str> {
         Page::SplitProfiles => "horizon.pages.split_profiles.tooltip",
         Page::ShaderPacks => "horizon.pages.shader_packs.tooltip",
         Page::Mods => "horizon.pages.mods.tooltip",
-        Page::SplitSetup => "horizon.pages.split_setup.tooltip",
-        Page::Music => "horizon.pages.music.tooltip",
         _ => return None,
     })
 }
@@ -1744,8 +1943,7 @@ fn native_pack_option_rows(s: &Settings, i: usize, at: u8) -> Vec<Row> {
         PageItem::Option(o) if o < count => {
             let option = &pack.options[o];
             let value = crate::shader_pack_list::show_value(&option.kind, pack.values[o]);
-            let label =
-                Text::option_name_value(Text::literal(option.name.clone()), Text::literal(value));
+            let label = Text::literal(format!("{}: {value}", option.name));
             button(0.0, 0.0, width, label, Act::NativePackOption(i, o))
         }
         PageItem::Page(p) if p < pack.pages.len() => {
@@ -1832,8 +2030,6 @@ enum Row {
     Big(Opt),
     Pair(Opt, Option<Opt>),
     Header(&'static str),
-    /// A heading the page makes at run time, by lang key (the Music page's groups).
-    Heading(String),
     /// A line of grey text (a path).
     Note(String),
     Buttons(Widget, Option<Widget>),
@@ -1870,7 +2066,7 @@ fn tooltip_text(s: &Settings, wd: &Widget) -> Option<Text> {
     };
     let mut tip = None;
     if let Act::Extra(item) = act {
-        tip = Some(Text::literal(item.description_text()));
+        tip = Some(Text::literal(item.description()));
     }
     if let Act::Push(page) = act
         && let Some(text) = horizon_page_tooltip(*page)
@@ -2045,15 +2241,27 @@ fn pairs(opts: &[Opt]) -> Vec<Row> {
 impl OptionsUi {
     /// A switch of `horizon-extras.txt` as the Extras page draws it: "Caption: On".
     fn extra_button(&self, s: &Settings, item: crate::extras::Item) -> Widget {
-        let label = Text::option_name_value(
-            Text::literal(item.caption_text()),
-            Text::literal(item.value(&s.extras)),
-        );
-        button(0.0, 0.0, 150.0, label, Act::Extra(item))
+        let label = format!("{}: {}", item.caption(), item.value(&s.extras));
+        button(0.0, 0.0, 150.0, Text::literal(label), Act::Extra(item))
     }
     fn settings_search_active(&self) -> bool {
         self.settings_search.focused
             && matches!(self.page(), Page::Video | Page::Controls | Page::KeyBinds)
+    }
+    #[cfg(target_os = "android")]
+    pub fn android_edit_value(&mut self, atlas: &HudAtlas) -> String {
+        if self.page() == Page::Packs
+            && let Some(pack) = &mut self.pack_screen
+        {
+            return pack.android_edit_value(&crate::screen_draw::Measure(&atlas.font));
+        }
+        let edit = if self.page() == Page::Language {
+            &mut self.language_search
+        } else {
+            &mut self.settings_search
+        };
+        edit.move_cursor_to_end(false);
+        edit.value.clone()
     }
     /// Whether the resource pack screen is open (not Create World's data packs on the same
     /// page).
@@ -2086,9 +2294,6 @@ impl OptionsUi {
                     .pack_screen
                     .as_ref()
                     .is_some_and(|p| p.search_focused()),
-                Page::Graphics | Page::GraphicsAdvanced | Page::GraphicsHdr => {
-                    self.graphics.typing()
-                }
                 _ => self.settings_search_active(),
             }
     }
@@ -2168,7 +2373,6 @@ impl OptionsUi {
         self.stack.clear();
         self.data_pack_dir = None;
         self.focus = None;
-        self.focus_from_keyboard = false;
         self.can_change_value = false;
         self.push(page);
         self.in_world = in_world;
@@ -2179,7 +2383,6 @@ impl OptionsUi {
         self.scroll = 0.0;
         self.scrollbar_drag_y = None;
         self.focus = None;
-        self.focus_from_keyboard = false;
         self.can_change_value = false;
         if matches!(page, Page::Video | Page::Controls | Page::KeyBinds) {
             self.settings_search.set_value("");
@@ -2193,45 +2396,22 @@ impl OptionsUi {
         if page == Page::Packs {
             self.pack_screen = None;
         }
-        if let Some(at) = Self::graphics_page(page) {
-            self.graphics.open(at);
-        }
-        if page == Page::SplitSetup {
-            self.split_setup.reset();
+        if matches!(
+            page,
+            Page::Graphics | Page::GraphicsAdvanced | Page::GraphicsHdr
+        ) {
+            self.graphics.reset();
         }
         if page == Page::SplitProfiles {
             self.split_profiles.reset();
         }
     }
-    /// What the graphics screen's actions do to these options.
-    fn graphics_events(
-        &mut self,
-        s: &mut Settings,
-        actions: Vec<crate::graphics_ui::Action>,
-    ) -> Vec<Event> {
-        use crate::graphics_ui::Action;
-        let mut events = Vec::new();
-        for action in actions {
-            match action {
-                Action::ButtonClick => events.push(Event::ButtonClick),
-                Action::Changed => events.push(Event::Changed),
-                Action::SliderDrag => events.push(Event::SliderDrag),
-                Action::BindKey(name) => self.selected_key = Some(name),
-                Action::Calibrate => {
-                    self.calibration = Some(crate::hdr_calibration::Calibration::new(s));
-                    self.push(Page::HdrCalibration);
-                }
-                Action::Done => events.extend(self.back(s)),
-            }
-        }
-        events
-    }
-    /// Where the graphics screen opens for `page`, if it is one of its pages.
-    fn graphics_page(page: Page) -> Option<crate::graphics_ui::Page> {
+    /// The graphics screen level of `page`, if it is one.
+    fn graphics_level(page: Page) -> Option<crate::graphics_ui::Level> {
         match page {
-            Page::Graphics => Some(crate::graphics_ui::Page::General),
-            Page::GraphicsAdvanced => Some(crate::graphics_ui::Page::Advanced),
-            Page::GraphicsHdr => Some(crate::graphics_ui::Page::Hdr),
+            Page::Graphics => Some(crate::graphics_ui::Level::Simple),
+            Page::GraphicsAdvanced => Some(crate::graphics_ui::Level::Advanced),
+            Page::GraphicsHdr => Some(crate::graphics_ui::Level::Hdr),
             _ => None,
         }
     }
@@ -2268,12 +2448,11 @@ impl OptionsUi {
             Page::Controller => "horizon.pages.controller",
             Page::PadBinds => "horizon.pages.controller_binds",
             Page::Extras => "horizon.pages.extras",
+            Page::Touch => "Touch Controls",
             Page::Credits => "credits_and_attribution.screen.title",
             Page::Horizon => "horizon.pages.settings",
             Page::Agent => "horizon.pages.agent",
             Page::SplitProfiles => "horizon.pages.split_profiles",
-            Page::SplitSetup => "horizon.pages.split_setup",
-            Page::Music => "horizon.pages.music",
         }
     }
     fn scrollbar_x(&self, width: f32) -> f32 {
@@ -2363,16 +2542,11 @@ impl OptionsUi {
 
     fn list_rows(&self, s: &Settings) -> Vec<Row> {
         match self.page() {
-            Page::SplitSetup => Vec::new(),
             Page::Extras => {
                 // Each section's switches two to a row, as vanilla's
                 // OptionsList.addSmall lays out an options screen.
                 let extra = |item: crate::extras::Item| {
-                    let value = Text::option_name_value(
-                        Text::literal(item.caption_text()),
-                        Text::literal(item.value(&s.extras)),
-                    )
-                    .plain();
+                    let value = format!("{}: {}", item.caption(), item.value(&s.extras));
                     let label = if item.key_name().is_some() && self.selected_key == item.key_name()
                     {
                         Text::literal(format!("> {value} <")).with_color(text::YELLOW)
@@ -2415,7 +2589,7 @@ impl OptionsUi {
             }
             Page::Horizon => {
                 // Two to a row, as vanilla's OptionsList.addSmall lays out
-                // buttons; each opens one of Horizon's settings pages.
+                // buttons; each opens a page built from vanilla's widgets.
                 let open =
                     |key: &str, page: Page| button(0.0, 0.0, 150.0, tr(key), Act::Push(page));
                 vec![
@@ -2433,17 +2607,6 @@ impl OptionsUi {
                     Row::Buttons(
                         open("horizon.pages.open.extras", Page::Extras),
                         Some(open("horizon.pages.open.mods", Page::Mods)),
-                    ),
-                    Row::Buttons(
-                        open(
-                            "horizon.pages.open.split_setup",
-                            if self.split_guest {
-                                Page::SplitProfiles
-                            } else {
-                                Page::SplitSetup
-                            },
-                        ),
-                        None,
                     ),
                     // No AI hides the AI Agent page and everything AI.
                     Row::Buttons(
@@ -2474,35 +2637,11 @@ impl OptionsUi {
                         Act::CopyAgentDetails,
                     )),
                 )];
-                rows.push(Row::Buttons(
-                    button(
-                        0.0,
-                        0.0,
-                        150.0,
-                        tr(if self.agent_recording {
-                            "horizon.agent.record_stop"
-                        } else {
-                            "horizon.agent.record_session"
-                        }),
-                        Act::ToggleRecording,
-                    ),
-                    Some(button(
-                        0.0,
-                        0.0,
-                        150.0,
-                        tr("horizon.agent.export_repro"),
-                        Act::ExportRepro,
-                    )),
-                ));
-                rows.push(Row::Buttons(
-                    self.extra_button(s, crate::extras::Item::ReproKeys),
-                    None,
-                ));
                 rows.extend(self.agent_status.iter().cloned().map(Row::Note));
                 rows
             }
             Page::Video => {
-                // Horizon's graphics settings screen, at General and at Advanced.
+                // Horizon's graphics screens, Simple and Advanced.
                 let mut rows = vec![Row::Buttons(
                     button(
                         0.0,
@@ -2570,57 +2709,11 @@ impl OptionsUi {
                 rows.extend(pairs(&[Opt::ShowSubtitles, Opt::DirectionalAudio]));
                 rows.extend(pairs(&[Opt::MusicFrequency, Opt::MusicToast]));
                 rows.push(Row::Big(Opt::SoundDevice));
-                // Horizon's music page (an extra): the built-in tracks, by
-                // situation, once it is on in Horizon Extras.
-                if s.extras.music_page {
-                    rows.push(Row::Buttons(
-                        button(
-                            0.0,
-                            0.0,
-                            310.0,
-                            tr("horizon.pages.open.music"),
-                            Act::Push(Page::Music),
-                        ),
-                        None,
-                    ));
-                }
-                rows
-            }
-            Page::Music => {
-                if self.music_groups.is_empty() {
-                    return vec![Row::Header("horizon.pages.music.empty")];
-                }
-                let mut rows = Vec::new();
-                for group in &self.music_groups {
-                    rows.push(Row::Heading(group.label.clone()));
-                    for track in &group.tracks {
-                        // Left: the track, played now. Right: whether its pool
-                        // still picks it (vanilla until one is turned off).
-                        let on = !s.extras.music_off.contains(&track.id);
-                        let play = button(
-                            0.0,
-                            0.0,
-                            150.0,
-                            Text::literal(track_name(&track.id).to_owned()),
-                            Act::PlayMusicTrack(track.event.clone(), track.id.clone()),
-                        );
-                        let toggle = button(
-                            0.0,
-                            0.0,
-                            150.0,
-                            on_off(on),
-                            Act::MusicTrackOn(track.id.clone(), on),
-                        );
-                        rows.push(Row::Buttons(play, Some(toggle)));
-                    }
-                }
                 rows
             }
             Page::Skin => {
                 // SkinCustomizationScreen: the seven layers, then Main Hand.
                 let mut opts: Vec<Opt> = (0..MODEL_PART_KEYS.len()).map(Opt::ModelPart).collect();
-                // Horizon's own: the outer layer as real pixels, not one box.
-                opts.push(Opt::SkinLayers3d);
                 opts.push(Opt::MainHand);
                 pairs(&opts)
             }
@@ -2651,16 +2744,95 @@ impl OptionsUi {
                         Act::Push(Page::KeyBinds),
                     )),
                 )];
+                #[cfg(target_os = "android")]
+                rows.insert(0, Row::Big(Opt::AndroidInputMode));
                 let controls = vanilla_control_options();
+                #[cfg(target_os = "android")]
+                let controls = {
+                    let mut controls = controls;
+                    controls.push(Opt::TouchAutoSprint);
+                    controls
+                };
                 rows.extend(pairs(&controls));
-                // Horizon's controller page, after vanilla's rows.
+                rows.push(Row::Buttons(
+                    button(
+                        0.0,
+                        0.0,
+                        if cfg!(target_os = "android") {
+                            150.0
+                        } else {
+                            310.0
+                        },
+                        Text::literal("Controller Settings..."),
+                        Act::Push(Page::Controller),
+                    ),
+                    {
+                        #[cfg(target_os = "android")]
+                        {
+                            Some(button(
+                                0.0,
+                                0.0,
+                                150.0,
+                                Text::literal("Touch Controls..."),
+                                Act::Push(Page::Touch),
+                            ))
+                        }
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            None
+                        }
+                    },
+                ));
+                self.filter_option_rows(rows)
+            }
+            Page::Touch => {
+                let mut rows = vec![Row::Header("Movement & Look Sensitivity")];
+                rows.push(Row::Big(Opt::TouchMode));
+                rows.extend(pairs(&[
+                    Opt::TouchCrosshairGestures,
+                    Opt::TouchAttackButtonLook,
+                    Opt::TouchSensitivity,
+                    Opt::TouchSensitivityHorizontal,
+                    Opt::TouchSensitivityVertical,
+                ]));
+                rows.push(Row::Header("Control Hub & Feedback"));
+                rows.extend(pairs(&[
+                    Opt::TouchControlHub,
+                    Opt::TouchUiVibration,
+                    Opt::TouchGameVibration,
+                ]));
+                rows.push(Row::Header("HUD Buttons & Layout"));
+                rows.extend(pairs(&[
+                    Opt::TouchOffhand,
+                    Opt::TouchShield,
+                    Opt::TouchButtonScale,
+                    Opt::TouchCircleSize,
+                    Opt::TouchAttackSide,
+                    Opt::DebugGuiScale,
+                    Opt::TouchLeftHand,
+                    Opt::TouchSwapJumpSneak,
+                ]));
+                rows.push(Row::Header("Joystick, Actions & Gyroscope"));
+                rows.extend(pairs(&[
+                    Opt::TouchAnalog,
+                    Opt::TouchSprintButton,
+                    Opt::TouchSprintToggle,
+                    Opt::TouchInventoryControls,
+                    Opt::TouchInteract,
+                    Opt::TouchDynamicJoystick,
+                    Opt::TouchDynamicAreaX,
+                    Opt::TouchDynamicAreaY,
+                    Opt::AndroidGyroscope,
+                    Opt::AndroidGyroSensitivity,
+                ]));
+                #[cfg(target_os = "android")]
                 rows.push(Row::Buttons(
                     button(
                         0.0,
                         0.0,
                         310.0,
-                        tr("horizon.pages.open.controller"),
-                        Act::Push(Page::Controller),
+                        Text::literal("Customize Touch & GoyControl Layout..."),
+                        Act::TouchControls,
                     ),
                     None,
                 ));
@@ -2738,10 +2910,8 @@ impl OptionsUi {
                     .iter()
                     .enumerate()
                     .map(|(i, installed)| {
-                        let mut label = Text::option_name_value(
-                            Text::literal(installed.title.clone()),
-                            on_off(s.mods.is_on(i)),
-                        );
+                        let mut label = Text::literal(format!("{}: ", installed.title))
+                            .append(on_off(s.mods.is_on(i)));
                         if installed.problem.as_deref() == Some(crate::mod_list::NOT_BUILT) {
                             label = label.append(tr("horizon.mods.not_built"));
                         } else if installed.problem.is_some() {
@@ -2749,22 +2919,12 @@ impl OptionsUi {
                         } else if installed.dev {
                             label = label.append(tr("horizon.mods.dev"));
                         }
-                        // A content mod's set feeds the block-state tables the
-                        // open world's chunks were decoded with: changing it
-                        // mid-world remaps their ids (Forge/Fabric freeze the
-                        // registry before a world opens). A native mod toggles
-                        // live through `native_on`, so it stays available.
-                        let content = installed.native.is_none();
-                        if self.in_world && content {
-                            label = label.append(tr("horizon.mods.in_world"));
-                        }
-                        let dead =
-                            installed.dev || installed.id.is_empty() || self.in_world && content;
+                        let dead = installed.dev || installed.id.is_empty();
                         // Only native mods with actual settings need a second button.
-                        if installed
-                            .native
-                            .as_ref()
-                            .is_some_and(|page| !page.keys.is_empty() || !page.buttons.is_empty())
+                        if installed.has_settings
+                            || installed.native.as_ref().is_some_and(|page| {
+                                !page.keys.is_empty() || !page.buttons.is_empty()
+                            })
                         {
                             let toggle = button(0.0, 0.0, 150.0, label, Act::ToggleMod(i));
                             let settings = button(
@@ -2813,10 +2973,8 @@ impl OptionsUi {
                             }
                             crate::shader_pack_list::Kind::Classic => String::new(),
                         };
-                        let label = Text::option_name_value(
-                            Text::literal(format!("{}{kind}", pack.title)),
-                            on_off(s.horizon.shader_pack == pack.file),
-                        );
+                        let label = Text::literal(format!("{}{kind}: ", pack.title))
+                            .append(on_off(s.horizon.shader_pack == pack.file));
                         Row::Buttons(button(0.0, 0.0, 310.0, label, Act::PickShaderPack(i)), None)
                     }))
                     .collect()
@@ -2828,33 +2986,6 @@ impl OptionsUi {
                 Vec::new()
             }
         }
-    }
-    /// A section heading of a list (`Row::Header`, `Row::Heading`), at `y`.
-    fn heading_row(&self, out: &mut Vec<Widget>, label: Text, y: &mut f32, w: f32, top: f32) {
-        let padding = if *y + self.scroll <= top + 2.0 {
-            0.0
-        } else {
-            18.0
-        };
-        let label = label.with_style(&Style {
-            bold: Some(true),
-            underlined: Some(true),
-            ..Style::default()
-        });
-        out.push(Widget {
-            x: 0.0,
-            y: *y + 2.0 + padding + 4.0,
-            w,
-            h: 9.0,
-            kind: WKind::Text {
-                text: label,
-                color: u32::MAX,
-                centered: true,
-            },
-            list: false,
-            row: 0,
-        });
-        *y += padding + 18.0;
     }
     /// Build every widget of the current page.
     fn layout(&mut self, s: &Settings, w: f32, h: f32) -> (Vec<Widget>, f32, f32, f32) {
@@ -2982,17 +3113,43 @@ impl OptionsUi {
                     list: false,
                     row: 0,
                 });
-                let mut mappings: Vec<(&str, &str)> =
-                    MAPPINGS.iter().map(|(n, _, c)| (*n, *c)).collect();
+                let keypad = s.keypad.enabled;
+                if cfg!(target_os = "android") || keypad {
+                    top = 64.0;
+                    out.push(button(
+                        cx - 150.0,
+                        39.0,
+                        300.0,
+                        Text::literal(if keypad {
+                            "Input profile: D-pad / keypad"
+                        } else {
+                            "Input profile: Keyboard"
+                        }),
+                        Act::KeyboardProfile,
+                    ));
+                }
+                let label = |name: &str| {
+                    crate::keypad::ACTIONS
+                        .iter()
+                        .find(|a| a.0 == name)
+                        .map_or_else(|| lang::get(name), |a| a.1.to_owned())
+                };
+                let mut mappings: Vec<(&str, &str)> = if keypad {
+                    crate::keypad::ACTIONS
+                        .iter()
+                        .map(|a| (a.0, "movement"))
+                        .collect()
+                } else {
+                    MAPPINGS.iter().map(|(n, _, c)| (*n, *c)).collect()
+                };
                 let query = self.settings_search.value.to_lowercase();
                 mappings.retain(|(name, _)| {
-                    query.is_empty() || lang::get(name).to_lowercase().contains(&query)
+                    query.is_empty() || label(name).to_lowercase().contains(&query)
                 });
                 mappings.sort_by(|a, b| {
                     let ca = CATEGORIES.iter().position(|c| *c == a.1).unwrap_or(99);
                     let cb = CATEGORIES.iter().position(|c| *c == b.1).unwrap_or(99);
-                    ca.cmp(&cb)
-                        .then_with(|| lang::get(a.0).cmp(&lang::get(b.0)))
+                    ca.cmp(&cb).then_with(|| label(a.0).cmp(&label(b.0)))
                 });
                 let row_left = cx - 170.0;
                 let scrollbar_x = row_left + 340.0 + 6.0 + 2.0;
@@ -3049,16 +3206,40 @@ impl OptionsUi {
                         w: 200.0,
                         h: 9.0,
                         kind: WKind::Text {
-                            text: tr(name),
+                            text: if keypad {
+                                Text::literal(label(name))
+                            } else {
+                                tr(name)
+                            },
                             color: u32::MAX,
                             centered: false,
                         },
                         list: false,
                         row: 0,
                     });
-                    let key = s.keys.get(name).to_owned();
+                    let key = if keypad {
+                        s.keypad
+                            .keys(name)
+                            .first()
+                            .cloned()
+                            .unwrap_or_else(|| "key.keyboard.unknown".into())
+                    } else {
+                        s.keys.get(name).to_owned()
+                    };
                     let mut message = keybinds::display_name(&key);
-                    let conflicts = s.keys.conflicts(name);
+                    let conflicts: Vec<_> = if keypad {
+                        crate::keypad::ACTIONS
+                            .iter()
+                            .filter(|a| {
+                                a.0 != name
+                                    && s.keypad.keys(a.0).contains(&key)
+                                    && key != "key.keyboard.unknown"
+                            })
+                            .map(|a| a.0)
+                            .collect()
+                    } else {
+                        s.keys.conflicts(name)
+                    };
                     if !conflicts.is_empty() {
                         message = Text::literal("[ ")
                             .append(message.with_color(text::WHITE))
@@ -3077,7 +3258,14 @@ impl OptionsUi {
                     }
                     let reset_x = scrollbar_x - 50.0 - 10.0;
                     let change_x = reset_x - 5.0 - 75.0;
-                    let name_static = MAPPINGS.iter().find(|m| m.0 == name).map_or("", |m| m.0);
+                    let name_static = if keypad {
+                        crate::keypad::ACTIONS
+                            .iter()
+                            .find(|a| a.0 == name)
+                            .map_or("", |a| a.0)
+                    } else {
+                        MAPPINGS.iter().find(|m| m.0 == name).map_or("", |m| m.0)
+                    };
                     out.push(button(change_x, y, 75.0, message, Act::Key(name_static)));
                     if !conflicts.is_empty() {
                         out.push(Widget {
@@ -3101,11 +3289,15 @@ impl OptionsUi {
                         tr("controls.reset"),
                         Act::ResetKey(name_static),
                     );
-                    out.push(if s.keys.is_default(name) {
-                        inactive(reset)
-                    } else {
-                        reset
-                    });
+                    out.push(
+                        if (keypad && !s.keypad.bindings.contains_key(name))
+                            || (!keypad && s.keys.is_default(name))
+                        {
+                            inactive(reset)
+                        } else {
+                            reset
+                        },
+                    );
                     y += 20.0;
                     rows.end(&mut out, y);
                 }
@@ -3315,12 +3507,30 @@ impl OptionsUi {
                     rows.begin(&out, y);
                     match row {
                         Row::Header(key) => {
-                            let label = tr(key);
-                            self.heading_row(&mut out, label, &mut y, w, top);
-                        }
-                        Row::Heading(key) => {
-                            let label = tr(&key);
-                            self.heading_row(&mut out, label, &mut y, w, top);
+                            let padding = if y + self.scroll <= top + 2.0 {
+                                0.0
+                            } else {
+                                18.0
+                            };
+                            let label = tr(key).with_style(&Style {
+                                bold: Some(true),
+                                underlined: Some(true),
+                                ..Style::default()
+                            });
+                            out.push(Widget {
+                                x: 0.0,
+                                y: y + 2.0 + padding + 4.0,
+                                w,
+                                h: 9.0,
+                                kind: WKind::Text {
+                                    text: label,
+                                    color: u32::MAX,
+                                    centered: true,
+                                },
+                                list: false,
+                                row: 0,
+                            });
+                            y += padding + 18.0;
                         }
                         Row::Note(text) => {
                             out.push(Widget {
@@ -3366,9 +3576,6 @@ impl OptionsUi {
                 content = y + self.scroll - top + 2.0;
                 out[list_start..].iter_mut().for_each(|w| w.list = true);
                 let folder = match page {
-                    Page::Accessibility => {
-                        Some(("options.accessibility.link", Act::AccessibilityHelp))
-                    }
                     Page::Mods => Some(("horizon.mods.open_folder", Act::OpenModFolder)),
                     Page::ShaderPacks => Some(("pack.openFolder", Act::OpenShaderPackFolder)),
                     Page::ShaderOptions => Some(("controls.reset", Act::ShaderReset)),
@@ -3392,14 +3599,6 @@ impl OptionsUi {
         for widget in &mut out {
             if widget.list {
                 widget.y += previous_scroll - self.scroll;
-            }
-            if let WKind::Button {
-                act: Act::Cycle(Opt::RotateWithMinecarts),
-                active,
-                ..
-            } = &mut widget.kind
-            {
-                *active = self.in_world && self.minecart_improvements;
             }
         }
         self.row_bands = rows
@@ -3542,16 +3741,10 @@ impl OptionsUi {
             c.draw(batch, atlas, cursor);
             return;
         }
-        if Self::graphics_page(self.page()).is_some() {
+        if let Some(level) = Self::graphics_level(self.page()) {
             self.graphics.binding = self.selected_key;
-            self.graphics.draw(s, batch, atlas, cursor, self.in_world);
-            return;
-        }
-        if self.page() == Page::SplitSetup {
-            self.split_setup.on = s.extras.splitscreen;
-            // The controller picks a tile up between presses: the screen's size from the draw.
-            self.split_setup.size = (batch.width, batch.height);
-            self.split_setup.draw(batch, atlas, cursor, self.in_world);
+            self.graphics
+                .draw(level, s, batch, atlas, cursor, self.in_world);
             return;
         }
         if self.page() == Page::SplitProfiles {
@@ -3566,7 +3759,7 @@ impl OptionsUi {
             let m = crate::screen_draw::Measure(&atlas.font);
             let mouse = (cursor.0.floor() as i32, cursor.1.floor() as i32);
             let packs = self.packs(atlas, (w, h));
-            let mut draws = packs.draw(&m, mouse, blink, crate::hud_overlays::now_ms());
+            let mut draws = packs.draw(&m, mouse, blink);
             packs.bind_icons(&mut draws, atlas, &mut batch.patches);
             crate::screen_draw::paint(batch, atlas, &draws);
             return;
@@ -3589,9 +3782,6 @@ impl OptionsUi {
             self.narrate_list(&widgets, list_key, (top, bottom), w, cursor);
         }
         let mut tooltip = None;
-        // The widget a keyboard-focused tooltip belongs to: `MenuTooltipPositioner`
-        // keeps it against that widget, not at the pointer.
-        let mut tooltip_rect: Option<[f32; 4]> = None;
         for (wd_idx, wd) in widgets.iter().enumerate() {
             if !visible(wd) {
                 continue;
@@ -3601,15 +3791,9 @@ impl OptionsUi {
                 .as_ref()
                 .is_some_and(|fid| matches_focus(fid, wd_idx, wd));
             let start = batch.vertices.len();
-            let pointer_over = ui::hovered(cursor, wd.x, wd.y, wd.w, wd.h)
-                && (!wd.list || cursor.1 >= top && cursor.1 < bottom);
-            let hover = pointer_over || is_focused;
-            // The tooltip is the pointer's (`setTooltip`, drawn while hovered);
-            // a keyboard-focused widget keeps it against the widget
-            // (`MenuTooltipPositioner`). Focus a mouse click leaves behind
-            // does not: the description goes when the mouse leaves, like
-            // vanilla's.
-            let tip_hover = pointer_over || (is_focused && self.focus_from_keyboard);
+            let hover = (ui::hovered(cursor, wd.x, wd.y, wd.w, wd.h)
+                && (!wd.list || cursor.1 >= top && cursor.1 < bottom))
+                || is_focused;
             // A pack's option: its label within the widget (the name shortened), and on hover
             // the whole label when it was, then what the pack says of it.
             let shader = s.shader_options.as_ref();
@@ -3624,7 +3808,7 @@ impl OptionsUi {
             let fitted = shader.zip(option).map(|(o, name)| {
                 o.option_label_within(name, wd.w - 8.0, |t| atlas.font.width_text(t))
             });
-            if tip_hover && let Some(o) = shader {
+            if hover && let Some(o) = shader {
                 let comment = match (&wd.kind, option) {
                     (_, Some(name)) => o.comment(&format!("option.{name}")),
                     (
@@ -3653,10 +3837,9 @@ impl OptionsUi {
                     .collect();
                 if !lines.is_empty() {
                     tooltip = Some(lines);
-                    tooltip_rect = (!pointer_over).then_some([wd.x, wd.y, wd.w, wd.h]);
                 }
             }
-            if tip_hover && let Some(tip) = tooltip_text(s, wd) {
+            if hover && let Some(tip) = tooltip_text(s, wd) {
                 tooltip = Some(match &wd.kind {
                     // The duplicate keybinds tooltip keeps its own lines.
                     WKind::Button {
@@ -3668,7 +3851,6 @@ impl OptionsUi {
                         .collect::<Vec<_>>(),
                     _ => atlas.font.split(&tip, 170.0),
                 });
-                tooltip_rect = (!pointer_over).then_some([wd.x, wd.y, wd.w, wd.h]);
             }
             match &wd.kind {
                 WKind::Button { label, active, .. } => {
@@ -3840,10 +4022,7 @@ impl OptionsUi {
             self.settings_search = search;
         }
         if let Some(lines) = tooltip {
-            match tooltip_rect {
-                Some(rect) => ui::tooltip_menu(batch, atlas, &lines, cursor, rect),
-                None => ui::tooltip(batch, atlas, &lines, cursor),
-            }
+            ui::tooltip(batch, atlas, &lines, cursor);
         }
     }
     /// Mouse press/drag. Returns events for the game.
@@ -3867,26 +4046,6 @@ impl OptionsUi {
                 return vec![Event::ButtonClick];
             }
             return Vec::new();
-        }
-        if self.page() == Page::SplitSetup {
-            use crate::split_ui::Click;
-            if right {
-                return Vec::new();
-            }
-            self.split_setup.on = s.extras.splitscreen;
-            return match self.split_setup.click((x, y), size, drag) {
-                Click::Nothing => Vec::new(),
-                Click::Pressed => vec![Event::ButtonClick],
-                Click::Switch => {
-                    crate::extras::Item::Splitscreen.cycle(&mut s.extras, false);
-                    vec![Event::ButtonClick, Event::Changed]
-                }
-                Click::Done => {
-                    let mut events = vec![Event::ButtonClick];
-                    events.extend(self.back(s));
-                    events
-                }
-            };
         }
         if self.page() == Page::SplitProfiles {
             use crate::split_profiles::Click;
@@ -3912,7 +4071,8 @@ impl OptionsUi {
             let outcome = c.click((x, y), size, drag);
             return self.calibration_outcome(s, outcome);
         }
-        if Self::graphics_page(self.page()).is_some() {
+        if let Some(level) = Self::graphics_level(self.page()) {
+            use crate::graphics_ui::Action;
             // Waiting on a key: a mouse button binds, as on Key Binds.
             if self.selected_key.is_some() && !drag {
                 let button = if right {
@@ -3922,10 +4082,36 @@ impl OptionsUi {
                 };
                 return self.bind_mouse(s, button);
             }
-            let actions =
-                self.graphics
-                    .click(s, (x, y), size, framebuffer, drag, right, self.shift);
-            return self.graphics_events(s, actions);
+            let mut events = Vec::new();
+            for action in self
+                .graphics
+                .click(level, s, (x, y), size, framebuffer, drag, right)
+            {
+                match action {
+                    Action::ButtonClick => events.push(Event::ButtonClick),
+                    Action::Changed => events.push(Event::Changed),
+                    Action::SliderDrag => events.push(Event::SliderDrag),
+                    Action::OpenAdvanced => self.push(Page::GraphicsAdvanced),
+                    Action::OpenHdr => self.push(Page::GraphicsHdr),
+                    Action::BindKey(name) => self.selected_key = Some(name),
+                    Action::Calibrate => {
+                        self.calibration = Some(crate::hdr_calibration::Calibration::new(s));
+                        self.push(Page::HdrCalibration);
+                    }
+                    Action::OpenSimple => {
+                        if self.stack.len() >= 2
+                            && self.stack[self.stack.len() - 2] == Page::Graphics
+                        {
+                            events.extend(self.back(s));
+                        } else {
+                            self.stack.pop();
+                            self.push(Page::Graphics);
+                        }
+                    }
+                    Action::Done => events.extend(self.back(s)),
+                }
+            }
+            return events;
         }
         if self.page() == Page::Packs {
             let mut events = Vec::new();
@@ -3952,9 +4138,6 @@ impl OptionsUi {
                     None => Event::OpenPackFolder,
                 }),
                 crate::pack_screen::Action::Done => events.extend(self.back(s)),
-                crate::pack_screen::Action::BrowsePick(i) => {
-                    events.push(Event::DownloadPack(i));
-                }
                 crate::pack_screen::Action::None => {}
             }
             return events;
@@ -3968,7 +4151,6 @@ impl OptionsUi {
             search.focused = ui::hovered((x, y), search.x, search.y, search.width, search.height);
             if search.focused {
                 self.focus = Some(FocusId::Search);
-                self.focus_from_keyboard = false;
                 self.can_change_value = false;
                 search.click(atlas, x, false, false);
                 self.scroll = 0.0;
@@ -3981,7 +4163,6 @@ impl OptionsUi {
             search.focused = ui::hovered((x, y), search.x, search.y, search.width, search.height);
             if search.focused {
                 self.focus = Some(FocusId::Search);
-                self.focus_from_keyboard = false;
                 self.can_change_value = false;
                 search.click(atlas, x, false, false);
                 self.scroll = 0.0;
@@ -4095,10 +4276,7 @@ impl OptionsUi {
             if wd.list && (y < top || y >= bottom) {
                 continue;
             }
-            // A click focuses the widget for its highlight only: vanilla's wheel
-            // steps a keyboard-focused widget from anywhere, not a clicked one.
             self.focus = Some(focus_id(wd_idx, &wd));
-            self.focus_from_keyboard = false;
             match wd.kind {
                 WKind::Button {
                     active: true, act, ..
@@ -4110,42 +4288,41 @@ impl OptionsUi {
                             if p == Page::ShaderPacks {
                                 events.push(Event::ListShaderPacks);
                             }
-                            if p == Page::Music {
-                                events.push(Event::ListMusicTracks);
-                            }
                             self.push(p)
                         }
                         Act::Done => events.extend(self.back(s)),
                         Act::Cycle(opt) => {
-                            events.extend(self.cycle_option(s, opt, self.shift, framebuffer));
+                            events.extend(self.cycle_option(s, opt, right, framebuffer));
                         }
                         Act::Extra(item) => {
                             if let Some(name) = item.key_name() {
                                 self.selected_key = Some(name);
                             } else {
-                                item.cycle(&mut s.extras, self.shift);
+                                item.cycle(&mut s.extras, right);
                                 events.push(Event::Changed);
                             }
                         }
-                        Act::PlayMusicTrack(event, track) => {
-                            events.push(Event::PlayMusicTrack(event, track));
+                        Act::Key(name) => self.selected_key = Some(name),
+                        Act::KeyboardProfile => {
+                            s.keypad.enabled = !s.keypad.enabled;
+                            self.scroll = 0.0;
+                            self.selected_key = None;
+                            events.push(Event::Changed);
                         }
-                        Act::MusicTrackOn(track, was_on) => {
-                            s.extras
-                                .music_off
-                                .retain(|off| off.as_str() != track.as_str());
-                            if was_on {
-                                s.extras.music_off.push(track);
+                        Act::ResetKey(name) => {
+                            if name.starts_with("key.keypad.") {
+                                s.keypad.bindings.remove(name);
+                            } else {
+                                s.keys.set(name, KeyBinds::default_of(name));
                             }
                             events.push(Event::Changed);
                         }
-                        Act::Key(name) => self.selected_key = Some(name),
-                        Act::ResetKey(name) => {
-                            s.keys.set(name, KeyBinds::default_of(name));
-                            events.push(Event::Changed);
-                        }
                         Act::ResetKeys => {
-                            s.keys.reset_all();
+                            if s.keypad.enabled {
+                                s.keypad.bindings.clear();
+                            } else {
+                                s.keys.reset_all();
+                            }
                             events.push(Event::Changed);
                         }
                         Act::PadKey(action) => self.selected_pad_action = Some(action),
@@ -4164,8 +4341,12 @@ impl OptionsUi {
                         }
                         Act::ModSettings(i) => {
                             events.push(Event::ButtonClick);
-                            self.push(Page::NativeMod(i));
-                            events.push(Event::NativeSettings(i));
+                            if s.mods.installed.get(i).is_some_and(|m| m.native.is_some()) {
+                                self.push(Page::NativeMod(i));
+                                events.push(Event::NativeSettings(i));
+                            } else {
+                                events.push(Event::ModSettings(i));
+                            }
                         }
                         Act::NativeKey(i, k) => {
                             self.selected_key = Some(NATIVE_KEY);
@@ -4173,7 +4354,6 @@ impl OptionsUi {
                         }
                         Act::NativeButton(i, b) => events.push(Event::NativeButton(i, b)),
                         Act::OpenModFolder => events.push(Event::OpenModFolder),
-                        Act::AccessibilityHelp => events.push(Event::AccessibilityHelp),
                         Act::PickShaderPack(i) => {
                             if let Some(pack) = s.shader_packs.get(i) {
                                 s.horizon.shader_pack = if s.horizon.shader_pack == pack.file {
@@ -4233,8 +4413,8 @@ impl OptionsUi {
                         }
                         Act::Credits => events.push(Event::Credits),
                         Act::CopyAgentDetails => events.push(Event::CopyAgentDetails),
-                        Act::ToggleRecording => events.push(Event::ToggleRecording),
-                        Act::ExportRepro => events.push(Event::ExportRepro),
+                        #[cfg(target_os = "android")]
+                        Act::TouchControls => events.push(Event::TouchControls),
                         Act::None => {}
                     }
                 }
@@ -4290,11 +4470,8 @@ impl OptionsUi {
         let slider = self.dragging.take().is_some() | self.shader_dragging.take().is_some();
         let graphics_slider = self.graphics.release();
         let calibration_slider = self.calibration.as_mut().is_some_and(|c| c.release());
-        let split_drop = self.split_setup.release();
         if slider || graphics_slider || calibration_slider {
             vec![Event::ButtonClick, Event::Changed]
-        } else if split_drop {
-            vec![Event::ButtonClick]
         } else {
             Vec::new()
         }
@@ -4339,20 +4516,15 @@ impl OptionsUi {
         }
         events
     }
-    /// The mouse wheel at the cursor. Vanilla scrolls the list
-    /// (`AbstractScrollArea.mouseScrolled`), except that a hovered cycle button
-    /// takes the step and keeps the wheel (`CycleButton.mouseScrolled`: up goes
-    /// back); `AbstractSliderButton` does not override it, so a slider under the
-    /// cursor lets the list scroll.
+    /// The mouse wheel at the cursor. Over a cycle button it takes the step
+    /// (`CycleButton.mouseScrolled`: up goes back) and the list stays put;
+    /// over a slider it nudges the slider up or down.
     ///
-    /// **Horizon improvement (diverges from Vanilla 26.3):** a slider or cycle
-    /// button focused by the keyboard (Tab, the arrows, a pad) steps or cycles on
-    /// the wheel wherever the cursor is. Vanilla 26.3 does not intercept the wheel
-    /// for sliders at all; this makes keyboard navigation far more usable. Focus
-    /// left by a click does not count (`focus_from_keyboard`): vanilla's wheel
-    /// ignores it, and honouring it toggled the clicked option on every later wheel
-    /// event, from anywhere on the screen, while the list never scrolled.
-    /// The graphics screen has its own wheel (`GraphicsUi::wheel`).
+    /// **Horizon improvement (diverges from Vanilla 26.3):** when a slider or
+    /// cycle button is keyboard-focused (highlighted), the wheel steps or
+    /// cycles that widget regardless of where the cursor is. Vanilla 26.3
+    /// does not intercept the wheel for sliders at all; this makes keyboard
+    /// navigation far more usable.
     pub fn wheel(
         &mut self,
         s: &mut Settings,
@@ -4363,23 +4535,48 @@ impl OptionsUi {
     ) -> Vec<Event> {
         self.size = size;
         self.framebuffer = framebuffer;
-        if Self::graphics_page(self.page()).is_some() {
-            let actions = self.graphics.wheel(s, size, cursor, framebuffer, amount);
-            return self.graphics_events(s, actions);
+        if let Some(level) = Self::graphics_level(self.page()) {
+            use crate::graphics_ui::Action;
+            let actions = self
+                .graphics
+                .wheel(level, s, cursor, size, framebuffer, amount);
+            let mut events = Vec::new();
+            for action in actions {
+                match action {
+                    Action::ButtonClick => events.push(Event::ButtonClick),
+                    Action::Changed => events.push(Event::Changed),
+                    Action::SliderDrag => events.push(Event::SliderDrag),
+                    Action::OpenAdvanced => self.push(Page::GraphicsAdvanced),
+                    Action::OpenHdr => self.push(Page::GraphicsHdr),
+                    Action::OpenSimple => {
+                        if self.stack.len() >= 2
+                            && self.stack[self.stack.len() - 2] == Page::Graphics
+                        {
+                            events.extend(self.back(s));
+                        } else {
+                            self.stack.pop();
+                            self.push(Page::Graphics);
+                        }
+                    }
+                    Action::BindKey(name) => self.selected_key = Some(name),
+                    Action::Calibrate => {
+                        self.calibration = Some(crate::hdr_calibration::Calibration::new(s));
+                        self.push(Page::HdrCalibration);
+                    }
+                    Action::Done => events.extend(self.back(s)),
+                }
+            }
+            return events;
         }
         let plain = self.resource_error.is_none()
             && !(self.pack_screen.is_some() && self.stack.last() == Some(&Page::Packs));
-        // The "Scroll wheel changes settings" extra off: the wheel only scrolls.
-        if !plain || !s.extras.wheel_cycles_settings {
+        if !plain {
             self.scroll_at(s, size, cursor, amount);
             return Vec::new();
         }
         // Horizon improvement: a keyboard-focused slider or cycle button
         // intercepts the wheel before hover detection (see doc-comment above).
-        // A click focuses its widget for the highlight too, and vanilla's wheel
-        // must not act on that: it would toggle the clicked option from anywhere
-        // on the screen and the list would never scroll.
-        if amount != 0.0 && self.focus_from_keyboard {
+        if amount != 0.0 {
             let (widgets, _, _, _) = self.layout(s, size.0, size.1);
             match &self.focus {
                 Some(FocusId::Slider(opt)) => {
@@ -4440,13 +4637,31 @@ impl OptionsUi {
             }
         }
     }
+    /// Touch uses direct manipulation rather than sticky keyboard selection.
+    /// Text-editor focus is independent and is retained for the IME.
+    pub fn touch_start(&mut self) {
+        self.focus = None;
+        self.graphics.focus = None;
+    }
+    /// A touchscreen scroll moves the list, never the last focused or hovered
+    /// option. Keep physical wheel handling in `wheel` separate.
+    pub fn touch_scroll(
+        &mut self,
+        s: &Settings,
+        size: (f32, f32),
+        cursor: (f32, f32),
+        amount: f32,
+    ) {
+        self.touch_start();
+        self.scroll_at(s, size, cursor, amount);
+    }
     /// The mouse wheel at the cursor.
     pub fn scroll_at(&mut self, s: &Settings, size: (f32, f32), cursor: (f32, f32), amount: f32) {
         if self.resource_error.is_some() {
             return;
         }
-        if Self::graphics_page(self.page()).is_some() {
-            self.graphics.scroll(s, size, amount);
+        if let Some(level) = Self::graphics_level(self.page()) {
+            self.graphics.scroll(level, s, size.1, amount);
             return;
         }
         match &mut self.pack_screen {
@@ -4509,7 +4724,6 @@ impl OptionsUi {
                     self.pack_infos.clone(),
                     &self.pack_selection,
                 );
-                screen.browsing_allowed = self.pack_browser;
                 screen.changed = std::mem::take(&mut self.pack_reselected);
                 self.pack_screen = Some(screen);
             }
@@ -4518,7 +4732,7 @@ impl OptionsUi {
     }
     /// Escape or Done: leave the current page, applying page results.
     /// After an input on HDR calibration: Save keeps what it landed on, Cancel what was
-    /// set before; both go back to the graphics screen's HDR page.
+    /// set before; both go back to Graphics: HDR.
     fn calibration_outcome(
         &mut self,
         s: &mut Settings,
@@ -4566,7 +4780,6 @@ impl OptionsUi {
         self.selected_key = None;
         self.selected_pad_action = None;
         self.focus = None;
-        self.focus_from_keyboard = false;
         self.settings_search.focused = false;
         self.language_search.focused = false;
         self.can_change_value = false;
@@ -4629,8 +4842,6 @@ impl OptionsUi {
             self.scroll = 0.0;
         } else if self.page() == Page::SplitProfiles {
             self.split_profiles.type_text(text);
-        } else if Self::graphics_page(self.page()).is_some() && self.graphics.typing() {
-            self.graphics.type_text(text);
         } else if self.settings_search_active() {
             self.settings_search.insert_text(text);
             self.scroll = 0.0;
@@ -4662,9 +4873,6 @@ impl OptionsUi {
         if self.page() == Page::SplitProfiles {
             return self.split_profiles.shortcut(shortcut, clipboard);
         }
-        if Self::graphics_page(self.page()).is_some() {
-            return self.graphics.shortcut(shortcut, clipboard);
-        }
         if self.settings_search_active() {
             if self.settings_search.shortcut(shortcut, clipboard) {
                 self.scroll = 0.0;
@@ -4689,7 +4897,10 @@ impl OptionsUi {
             keys.insert(key.clone(), value);
             return vec![Event::Changed];
         }
-        if !s.extras.set_key(name, value.clone()) && !s.horizon.set_key(name, value.clone()) {
+        if name.starts_with("key.keypad.") {
+            s.keypad.set(name, value);
+        } else if !s.extras.set_key(name, value.clone()) && !s.horizon.set_key(name, value.clone())
+        {
             s.keys.set(name, &value);
         }
         vec![Event::Changed]
@@ -4775,11 +4986,37 @@ impl OptionsUi {
             return Vec::new();
         }
 
-        if Self::graphics_page(self.page()).is_some() {
+        if let Some(level) = Self::graphics_level(self.page()) {
+            use crate::graphics_ui::Action;
             let size = (self.size.0.max(480.0), self.size.1.max(240.0));
             let fb = [self.framebuffer[0].max(480), self.framebuffer[1].max(240)];
-            let (actions, handled) = self.graphics.key_modifiers(s, key, text, shift, size, fb);
-            let mut events = self.graphics_events(s, actions);
+            let (actions, handled) = self.graphics.key_modifiers(level, s, key, shift, size, fb);
+            let mut events = Vec::new();
+            for action in actions {
+                match action {
+                    Action::ButtonClick => events.push(Event::ButtonClick),
+                    Action::Changed => events.push(Event::Changed),
+                    Action::SliderDrag => events.push(Event::SliderDrag),
+                    Action::OpenAdvanced => self.push(Page::GraphicsAdvanced),
+                    Action::OpenHdr => self.push(Page::GraphicsHdr),
+                    Action::OpenSimple => {
+                        if self.stack.len() >= 2
+                            && self.stack[self.stack.len() - 2] == Page::Graphics
+                        {
+                            events.extend(self.back(s));
+                        } else {
+                            self.stack.pop();
+                            self.push(Page::Graphics);
+                        }
+                    }
+                    Action::BindKey(name) => self.selected_key = Some(name),
+                    Action::Calibrate => {
+                        self.calibration = Some(crate::hdr_calibration::Calibration::new(s));
+                        self.push(Page::HdrCalibration);
+                    }
+                    Action::Done => events.extend(self.back(s)),
+                }
+            }
             if key == K::Escape {
                 events.extend(self.back(s));
                 return events;
@@ -4889,7 +5126,6 @@ impl OptionsUi {
             };
             let (next_id, rect, in_list) = &focusables[next_idx];
             self.focus = Some(next_id.clone());
-            self.focus_from_keyboard = true;
             self.can_change_value = matches!(next_id, FocusId::Slider(_));
             if *in_list {
                 if rect[1] < top {
@@ -4928,7 +5164,6 @@ impl OptionsUi {
                     if let Some(next_idx) = gamepad::focus_step_rect(from, dir, &rects) {
                         let (next_id, rect, in_list) = &focusables[next_idx];
                         self.focus = Some(next_id.clone());
-                        self.focus_from_keyboard = true;
                         self.can_change_value = false;
                         if *in_list {
                             if rect[1] < top {
@@ -4942,7 +5177,6 @@ impl OptionsUi {
                 }
             } else {
                 self.focus = Some(focusables[0].0.clone());
-                self.focus_from_keyboard = true;
                 self.can_change_value = false;
             }
             return Vec::new();
@@ -4965,7 +5199,6 @@ impl OptionsUi {
                     if let Some(next_idx) = step {
                         let (next_id, rect, in_list) = &focusables[next_idx];
                         self.focus = Some(next_id.clone());
-                        self.focus_from_keyboard = true;
                         self.can_change_value = false;
                         if *in_list {
                             if rect[1] < top {
@@ -4983,7 +5216,6 @@ impl OptionsUi {
                 }
             } else {
                 self.focus = Some(focusables[0].0.clone());
-                self.focus_from_keyboard = true;
                 self.can_change_value = false;
             }
             return Vec::new();
@@ -5007,19 +5239,14 @@ impl OptionsUi {
                     match act {
                         Act::Push(p) => {
                             self.focus = None;
-                            self.focus_from_keyboard = false;
                             self.can_change_value = false;
                             if p == Page::ShaderPacks {
                                 events.push(Event::ListShaderPacks);
-                            }
-                            if p == Page::Music {
-                                events.push(Event::ListMusicTracks);
                             }
                             self.push(p);
                         }
                         Act::Done => {
                             self.focus = None;
-                            self.focus_from_keyboard = false;
                             self.can_change_value = false;
                             events.extend(self.back(s));
                         }
@@ -5033,18 +5260,6 @@ impl OptionsUi {
                                 item.cycle(&mut s.extras, shift);
                                 events.push(Event::Changed);
                             }
-                        }
-                        Act::PlayMusicTrack(event, track) => {
-                            events.push(Event::PlayMusicTrack(event, track));
-                        }
-                        Act::MusicTrackOn(track, was_on) => {
-                            s.extras
-                                .music_off
-                                .retain(|off| off.as_str() != track.as_str());
-                            if was_on {
-                                s.extras.music_off.push(track);
-                            }
-                            events.push(Event::Changed);
                         }
                         Act::Key(name) => self.selected_key = Some(name),
                         Act::ResetKey(name) => {
@@ -5071,7 +5286,6 @@ impl OptionsUi {
                         }
                         Act::ModSettings(i) => {
                             self.focus = None;
-                            self.focus_from_keyboard = false;
                             self.can_change_value = false;
                             self.push(Page::NativeMod(i));
                             events.push(Event::NativeSettings(i));
@@ -5082,7 +5296,6 @@ impl OptionsUi {
                         }
                         Act::NativeButton(i, b) => events.push(Event::NativeButton(i, b)),
                         Act::OpenModFolder => events.push(Event::OpenModFolder),
-                        Act::AccessibilityHelp => events.push(Event::AccessibilityHelp),
                         Act::PickShaderPack(i) => {
                             if let Some(pack) = s.shader_packs.get(i) {
                                 s.horizon.shader_pack = if s.horizon.shader_pack == pack.file {
@@ -5097,7 +5310,6 @@ impl OptionsUi {
                         // The shader options page's buttons, as a click does them.
                         Act::ShaderOptions => {
                             self.focus = None;
-                            self.focus_from_keyboard = false;
                             self.can_change_value = false;
                             s.shader_options = None;
                             self.push(Page::ShaderOptions);
@@ -5115,7 +5327,6 @@ impl OptionsUi {
                         Act::ShaderScreen(screen) => {
                             if let Some(options) = &mut s.shader_options {
                                 self.focus = None;
-                                self.focus_from_keyboard = false;
                                 options.path.push(screen);
                                 self.scroll = 0.0;
                             }
@@ -5146,22 +5357,27 @@ impl OptionsUi {
                                 events.push(Event::NativePackOptions(pack));
                             }
                         }
+                        Act::KeyboardProfile => {
+                            s.keypad.enabled = !s.keypad.enabled;
+                            self.scroll = 0.0;
+                            self.selected_key = None;
+                            events.push(Event::Changed);
+                        }
+                        #[cfg(target_os = "android")]
+                        Act::TouchControls => events.push(Event::TouchControls),
                         Act::Credits => events.push(Event::Credits),
                         Act::CopyAgentDetails => events.push(Event::CopyAgentDetails),
-                        Act::ToggleRecording => events.push(Event::ToggleRecording),
-                        Act::ExportRepro => events.push(Event::ExportRepro),
                         Act::None => {}
                     }
                     return events;
                 }
                 Some(FocusId::Lang(code)) => {
-                    // `LanguageSelectionList.Entry.keyPressed`: the selection
-                    // key (`isSelection`: Enter, Space, keypad Enter) selects
-                    // the row and finishes the screen at once (`onDone`), so
-                    // the language applies on that one press.
                     let mut events = vec![Event::ButtonClick];
-                    self.language_choice = Some(code.clone());
-                    events.extend(self.back(s));
+                    if self.language_choice.as_deref() == Some(code.as_str()) {
+                        events.extend(self.back(s));
+                    } else {
+                        self.language_choice = Some(code.clone());
+                    }
                     return events;
                 }
                 _ => {}
@@ -5174,24 +5390,6 @@ impl OptionsUi {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The window allows the input method only while `typing` says a search
-    /// box has the focus (`Game::text_field_focused`), so a page without one
-    /// must not claim the keys: the movement and menu keys keep working there.
-    #[test]
-    fn only_a_focused_search_box_takes_text() {
-        let mut ui = OptionsUi::default();
-        assert!(!ui.typing(), "the main page has no text box");
-        ui.show(Page::Language);
-        assert!(ui.typing(), "the language list's search takes the keys");
-        ui.show(Page::Video);
-        assert!(!ui.typing(), "the settings search is not focused");
-        ui.settings_search.focused = true;
-        assert!(ui.typing(), "the settings search, once focused, does");
-        ui.settings_search.focused = false;
-        ui.show(Page::Packs);
-        assert!(!ui.typing(), "the pack screen's search is not open yet");
-    }
 
     #[test]
     fn accessibility_sliders_and_toggles_survive_options_round_trip() {
@@ -5316,16 +5514,6 @@ mod tests {
                 ..
             }
         )));
-        // `AccessibilityOptionsScreen.addFooter`: the "Accessibility Help"
-        // link button sits beside Done.
-        assert!(widgets.iter().any(|w| matches!(
-            w.kind,
-            WKind::Button {
-                act: Act::AccessibilityHelp,
-                active: true,
-                ..
-            }
-        )));
     }
 
     #[test]
@@ -5429,33 +5617,6 @@ mod tests {
             Opt::QuitShortcuts.tooltip_key(&s),
             "options.quitShortcuts.tooltip"
         );
-    }
-
-    /// The gating is for genuinely unread keys only: every option a system
-    /// already consumes must stay clickable.
-    #[test]
-    fn read_options_are_not_greyed_out() {
-        for opt in [
-            Opt::ChunkFade,
-            Opt::ImprovedTransparency,
-            Opt::ChatDelay,
-            Opt::SaveChatDrafts,
-            Opt::MusicToast,
-            Opt::CtrlClickEmulatesRightClick,
-        ] {
-            assert!(opt.available(), "{opt:?} is read and must be clickable");
-        }
-        for opt in [
-            Opt::HideMatchedNames,
-            Opt::OnlySecureChat,
-            Opt::RealmsNotifications,
-            Opt::InGameNotification,
-            Opt::SharePresence,
-            Opt::DirectionalAudio,
-            Opt::ChunkBuilder,
-        ] {
-            assert!(!opt.available(), "{opt:?} still has no reader");
-        }
     }
 
     #[test]
@@ -5616,89 +5777,6 @@ mod tests {
         assert!(ui.resource_error.is_none());
     }
 
-    /// The Extras page joins caption and value with the language's `options.generic_value`
-    /// (26.3's templates), not an English ": " (#6072).
-    #[test]
-    fn extras_captions_use_the_languages_separator() {
-        struct Vanilla;
-        impl lang::ResourceSource for Vanilla {
-            fn read(&self, path: &str) -> Option<Vec<u8>> {
-                let generic = match path {
-                    "assets/minecraft/lang/fr_fr.json" => "%s : %s",
-                    "assets/minecraft/lang/zh_cn.json" => "%s：%s",
-                    _ => return None,
-                };
-                serde_json::to_vec(&serde_json::json!({ "options.generic_value": generic })).ok()
-            }
-        }
-        let s = Settings::default();
-        let ui = OptionsUi::default();
-        for (code, shown) in [("fr_fr", "Sans IA : Non"), ("zh_cn", "关闭 AI：关")] {
-            let (label, _) = lang::scoped(lang::Language::load(&[&Vanilla], code), || {
-                match ui.extra_button(&s, crate::extras::Item::NoAi).kind {
-                    WKind::Button { label, .. } => label.plain(),
-                    _ => String::new(),
-                }
-            });
-            assert_eq!(label, shown, "{code}");
-        }
-    }
-
-    /// The texts of an options page, as laid out in `code`'s language, and the keys it lacked.
-    fn page_texts(code: &str, pages: &[Page]) -> (Vec<String>, Vec<String>) {
-        let s = Settings::default();
-        lang::scoped(lang::Language::load(&[], code), || {
-            let mut texts = Vec::new();
-            for page in pages {
-                let mut ui = OptionsUi::default();
-                ui.show(*page);
-                for w in ui.layout(&s, 480.0, 4000.0).0 {
-                    match w.kind {
-                        WKind::Button { label: t, .. }
-                        | WKind::Slider { label: t, .. }
-                        | WKind::Text { text: t, .. } => texts.push(t.plain()),
-                        _ => {}
-                    }
-                }
-            }
-            texts
-        })
-    }
-
-    /// Horizon's own options pages said "Splitscreen...", "Hide block-break particles" and
-    /// "Hotbar: Previous Slot" in every language (#1927).
-    #[test]
-    fn horizon_option_pages_follow_the_language() {
-        let (texts, missed) = page_texts("de_de", &[Page::Horizon, Page::Extras, Page::PadBinds]);
-        for want in [
-            "Splitscreen …",
-            "Partikel",
-            "Blockpartikel weg: Aus",
-            "Weicher Chat: Aus",
-            "Nachrichtenmarkierung: An",
-            "Kanäle für UI-Töne: Aus",
-            "Schnellzugriffsleiste: Vorheriger Platz",
-            "Schnellzugriffsleiste: Nächster Platz",
-        ] {
-            assert!(texts.iter().any(|t| t == want), "{want:?} not in {texts:?}");
-        }
-        // Every key these pages ask for is in the table; vanilla's own keys (`options.*`,
-        // `key.*`: dotted ids without spaces) come from the prepared resources, which this
-        // language does not have.
-        let missed: Vec<_> = missed
-            .into_iter()
-            .filter(|k| k.starts_with("horizon.") || k.contains(' ') || !k.contains('.'))
-            .collect();
-        assert_eq!(missed, Vec::<String>::new());
-        let (texts, _) = page_texts("pl_pl", &[Page::Extras, Page::PadBinds]);
-        for want in [
-            "Ukryj cząstki bloków: Wył.",
-            "Pasek szybkiego wyboru: poprzednie pole",
-        ] {
-            assert!(texts.iter().any(|t| t == want), "{want:?} not in {texts:?}");
-        }
-    }
-
     #[test]
     fn classic_mods_page_toggles_mods_and_keeps_dev_and_invalid_entries_inactive() {
         let atlas = atlas();
@@ -5759,6 +5837,7 @@ mod tests {
                 description: "May show HUD panels.".into(),
                 problem: id.is_empty().then(|| "Invalid package".into()),
                 dev,
+                has_settings: false,
                 native: None,
             });
         }
@@ -5826,6 +5905,7 @@ mod tests {
             description: String::new(),
             problem: None,
             dev: false,
+            has_settings: false,
             native: Some(crate::mod_list::NativePage {
                 buttons: vec!["Setting".into()],
                 ..Default::default()
@@ -5871,6 +5951,7 @@ mod tests {
             description: String::new(),
             problem: None,
             dev: false,
+            has_settings: false,
             native: Some(crate::mod_list::NativePage::default()),
         });
         ui.show(Page::Mods);
@@ -5923,6 +6004,7 @@ mod tests {
             description: String::new(),
             problem: None,
             dev: false,
+            has_settings: false,
             native: Some(crate::mod_list::NativePage {
                 keys: vec![["zoom".into(), "Zoom key".into(), "key.keyboard.z".into()]],
                 buttons: Vec::new(),
@@ -6023,65 +6105,6 @@ mod tests {
         assert_eq!(s.video_mode_index(), 2);
         Opt::ExclusiveMode.set_slider(&mut s, 0.0);
         assert_eq!(s.file.fullscreen_resolution, None);
-    }
-
-    #[test]
-    fn a_clicked_extras_tooltip_leaves_with_the_pointer() {
-        let atlas = atlas();
-        let mut s = Settings::default();
-        let mut ui = OptionsUi::default();
-        ui.show(Page::Extras);
-        let (widgets, _, _, _) = ui.layout(&s, 480.0, 480.0);
-        let extra = widgets
-            .iter()
-            .find(|w| {
-                matches!(
-                    &w.kind,
-                    WKind::Button {
-                        act: Act::Extra(item),
-                        ..
-                    } if !matches!(item, crate::extras::Item::SortKey)
-                )
-            })
-            .unwrap();
-        ui.click(
-            &mut s,
-            &atlas,
-            extra.x + 1.0,
-            extra.y + 1.0,
-            (480.0, 480.0),
-            [960, 540],
-            false,
-            false,
-        );
-        // The pointer is still on the clicked widget: it carries the
-        // description (`setTooltip`, drawn while hovered).
-        let mut on = HudBatch::new([480, 480]);
-        ui.draw(
-            &s,
-            &mut on,
-            &atlas,
-            (extra.x + extra.w / 2.0, extra.y + extra.h / 2.0),
-        );
-        // The pointer moved off: the description goes with it. A mouse
-        // focus a click left behind (the look-up keeps the click's widget,
-        // `focus_from_keyboard` false) does not keep the tooltip against
-        // the widget, like vanilla's `MenuTooltipPositioner` does for a
-        // keyboard focus.
-        let mut off = HudBatch::new([480, 480]);
-        ui.draw(
-            &s,
-            &mut off,
-            &atlas,
-            (extra.x + extra.w + 40.0, extra.y + extra.h + 40.0),
-        );
-        assert!(
-            off.vertices.len() < on.vertices.len(),
-            "a click left {} tooltip vertices behind when the pointer left ({} vs {})",
-            on.vertices.len() - off.vertices.len(),
-            on.vertices.len(),
-            off.vertices.len(),
-        );
     }
 
     #[test]
@@ -6795,49 +6818,6 @@ mod tests {
         );
     }
 
-    /// `LanguageSelectionList.Entry.keyPressed`: the selection key picks the
-    /// row's language and finishes the screen in one press (`onDone`), so the
-    /// page is gone after Enter and the language is already applied.
-    #[test]
-    fn the_selection_key_picks_a_language_and_finishes_the_page() {
-        use winit::keyboard::KeyCode;
-        let atlas = atlas();
-        let rows = languages();
-        let code = {
-            let s = Settings::default();
-            let mut ui = OptionsUi {
-                languages: rows.clone(),
-                ..Default::default()
-            };
-            ui.size = (480.0, 320.0);
-            ui.show(Page::Language);
-            let (widgets, ..) = ui.layout(&s, 480.0, 320.0);
-            widgets
-                .iter()
-                .find_map(|wd| match &wd.kind {
-                    WKind::LanguageRow { code, .. } => Some(code.clone()),
-                    _ => None,
-                })
-                .expect("a language row")
-        };
-        for key in [KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space] {
-            let mut s = Settings::default();
-            assert_ne!(s.language, code, "the row starts unchosen");
-            let mut ui = OptionsUi {
-                languages: rows.clone(),
-                ..Default::default()
-            };
-            ui.size = (480.0, 320.0);
-            ui.show(Page::Language);
-            ui.focus = Some(FocusId::Lang(code.clone()));
-            ui.focus_from_keyboard = true;
-            let events = ui.key(&mut s, &atlas, key, None);
-            assert_eq!(s.language, code, "{key:?} applies the row's language");
-            assert!(events.contains(&Event::Language(code.clone())), "{key:?}");
-            assert_eq!(ui.page(), Page::Main, "{key:?} finishes the language page");
-        }
-    }
-
     #[test]
     fn language_search_hint_does_not_overlap_the_focused_caret() {
         let atlas = atlas();
@@ -7009,6 +6989,51 @@ mod tests {
                 vec![Event::ButtonClick]
             );
             assert_eq!(ui.selected_key, Some(key));
+        }
+    }
+
+    #[test]
+    fn touch_scroll_after_click_moves_list_without_changing_options() {
+        let atlas = atlas();
+        let size = (480.0, 160.0);
+        for slider in [false, true] {
+            let mut settings = Settings::default();
+            let mut ui = OptionsUi::default();
+            ui.show(Page::Chat);
+            let (widgets, _, _, _) = ui.layout(&settings, size.0, size.1);
+            let widget = widgets
+                .iter()
+                .find(|w| {
+                    if slider {
+                        matches!(w.kind, WKind::Slider { .. })
+                    } else {
+                        matches!(
+                            w.kind,
+                            WKind::Button {
+                                act: Act::Cycle(_),
+                                ..
+                            }
+                        )
+                    }
+                })
+                .unwrap();
+            let cursor = (widget.x + widget.w / 2.0, widget.y + widget.h / 2.0);
+            ui.click(
+                &mut settings,
+                &atlas,
+                cursor.0,
+                cursor.1,
+                size,
+                [960, 320],
+                false,
+                false,
+            );
+            ui.release();
+            let before = (settings.chat_visibility, settings.chat_opacity);
+            ui.touch_scroll(&settings, size, cursor, -2.0);
+            assert_eq!(ui.scroll, 36.0);
+            assert_eq!((settings.chat_visibility, settings.chat_opacity), before);
+            assert!(ui.focus.is_none());
         }
     }
 
@@ -7253,46 +7278,6 @@ mod tests {
         assert_eq!(s.language, "de_de");
     }
 
-    /// A content mod's set builds the block-state tables an open world's
-    /// chunks were decoded with, so its toggle freezes in-world; a native
-    /// mod gates live through `native_on` and stays available.
-    #[test]
-    fn in_a_world_only_native_mod_toggles_stay_active() {
-        let mut s = Settings::default();
-        let installed =
-            |id: &str, native: Option<crate::mod_list::NativePage>| crate::mod_list::Installed {
-                id: id.into(),
-                title: id.into(),
-                description: String::new(),
-                problem: None,
-                dev: false,
-                native,
-            };
-        s.mods.installed = vec![
-            installed("content", None),
-            installed("native", Some(crate::mod_list::NativePage::default())),
-        ];
-        let mut ui = OptionsUi::default();
-        let toggles = |ui: &mut OptionsUi, s: &Settings| {
-            let (widgets, ..) = ui.layout(s, 427.0, 240.0);
-            widgets
-                .iter()
-                .filter_map(|w| match w.kind {
-                    WKind::Button {
-                        act: Act::ToggleMod(i),
-                        active,
-                        ..
-                    } => Some((i, active)),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-        };
-        ui.open_at(false, Page::Mods);
-        assert_eq!(toggles(&mut ui, &s), [(0, true), (1, true)]);
-        ui.open_at(true, Page::Mods);
-        assert_eq!(toggles(&mut ui, &s), [(0, false), (1, true)]);
-    }
-
     #[test]
     fn horizon_settings_hang_off_options_and_reach_every_horizon_page() {
         let s = Settings::default();
@@ -7328,7 +7313,6 @@ mod tests {
                 Page::Controller,
                 Page::Extras,
                 Page::Mods,
-                Page::SplitSetup,
                 Page::Agent,
             ]
         );
@@ -7364,6 +7348,43 @@ mod tests {
         }
         ui.stack = vec![Page::Main, Page::Controls];
         assert!(pushes(&mut ui).contains(&Page::Controller));
+    }
+    #[test]
+    fn touch_options_cycle_four_schemes_and_adjust_circle_and_sensitivity() {
+        let mut settings = Settings::default();
+        for i in 0..crate::touch::Mode::SCHEMES.len() {
+            let (mode, split, _) = crate::touch::Mode::SCHEMES[i];
+            assert_eq!(settings.touch.mode, mode);
+            assert_eq!(settings.touch.crosshair(), i == 0 || i == 3);
+            if mode == crate::touch::Mode::Dpad {
+                assert_eq!(settings.touch.split_controls, split);
+            }
+            Opt::TouchMode.cycle(&mut settings, false, [1280, 720]);
+        }
+        Opt::TouchAnalog.cycle(&mut settings, false, [1280, 720]);
+        Opt::TouchSprintButton.cycle(&mut settings, false, [1280, 720]);
+        assert!(settings.touch.analog_movement);
+        assert!(!settings.touch.visible(crate::touch::Control::Sprint));
+        Opt::TouchCircleSize.set_slider(&mut settings, 0.75);
+        assert_eq!(settings.touch.circle_size, 52.0);
+        Opt::TouchHorizontalMargin.set_slider(&mut settings, 0.5);
+        Opt::TouchVerticalMargin.set_slider(&mut settings, 1.0);
+        assert_eq!(settings.touch.horizontal_margin, 0.06);
+        assert_eq!(settings.touch.vertical_margin, 0.12);
+        Opt::DebugGuiScale.set_slider(&mut settings, 0.5);
+        assert_eq!(settings.file.int("debugGuiScale"), 3);
+        Opt::TouchSensitivity.set_slider(&mut settings, 0.0);
+        assert!((settings.touch.sensitivity - 0.1).abs() < 0.0001);
+        let mut ui = OptionsUi::default();
+        ui.push(Page::Touch);
+        let (widgets, _, _, _) = ui.layout(&settings, 427.0, 240.0);
+        assert!(widgets.iter().any(|w| matches!(
+            w.kind,
+            WKind::Slider {
+                opt: Opt::TouchCircleSize,
+                ..
+            }
+        )));
     }
 
     #[test]
@@ -7519,22 +7540,6 @@ mod tests {
     }
 
     #[test]
-    fn the_graphics_screens_wheel_scrolls_even_over_a_slider_being_changed() {
-        use crate::graphics_ui::{H, Item, Target};
-        let mut s = Settings::default();
-        let mut ui = OptionsUi::default();
-        ui.show(Page::Graphics);
-        let size = (640.0, 360.0);
-        s.horizon.chunk_updates = 16;
-        ui.graphics.focus = Some(Target::Item(Item::Horizon(H::ChunkUpdates)));
-        ui.graphics.can_change_value = true;
-        let before = ui.graphics.scroll_amount();
-        ui.wheel(&mut s, size, (320.0, 150.0), [1920, 1080], -1.0);
-        assert_eq!(s.horizon.chunk_updates, 16);
-        assert!(ui.graphics.scroll_amount() > before);
-    }
-
-    #[test]
     fn horizon_pages_slider_and_wheel_parity() {
         use winit::keyboard::KeyCode as K;
         let atlas = atlas();
@@ -7566,14 +7571,13 @@ mod tests {
 
         // 2. Horizon Graphics page through OptionsUi:
         // Tab onto ChunkUpdates slider, ArrowRight adjusts value, Space toggles can_change_value
-        ui.show(Page::Graphics);
-        ui.graphics.open(crate::graphics_ui::Page::Performance);
+        ui.show(Page::GraphicsAdvanced);
         s.horizon.chunk_updates = 10;
         ui.size = size;
         ui.framebuffer = [854, 480];
 
         // Tab into controls
-        for _ in 0..80 {
+        for _ in 0..15 {
             ui.key(&mut s, &atlas, K::Tab, None);
             if ui.graphics.focus
                 == Some(crate::graphics_ui::Target::Item(
@@ -7603,129 +7607,6 @@ mod tests {
         // ArrowRight does not change ChunkUpdates when can_change_value is false
         ui.key(&mut s, &atlas, K::ArrowRight, None);
         assert_eq!(s.horizon.chunk_updates, 11);
-    }
-
-    /// Vanilla's wheel scrolls the list (`AbstractScrollArea.mouseScrolled`); only a
-    /// widget focused by the keyboard takes the step from anywhere on the screen.
-    /// A click focuses its widget for the highlight, and honouring that focus made a
-    /// clicked option toggle on every later wheel event while the list never scrolled.
-    #[test]
-    fn a_clicked_option_lets_the_wheel_scroll_the_list() {
-        let atlas = atlas();
-        let mut s = Settings::default();
-        let mut ui = OptionsUi::default();
-        ui.show(Page::Video);
-        let framebuffer = [854, 480];
-        let click_size = (427.0, 400.0);
-        let (widgets, click_top, click_bottom, _) = ui.layout(&s, click_size.0, click_size.1);
-
-        // A click leaves the widget focused for its highlight, not for the wheel.
-        let wd = widgets
-            .iter()
-            .find(|wd| {
-                matches!(
-                    wd.kind,
-                    WKind::Button {
-                        act: Act::Cycle(_),
-                        ..
-                    }
-                ) && (!wd.list || (wd.y >= click_top && wd.y + wd.h <= click_bottom))
-            })
-            .expect("a visible cycle button");
-        ui.click(
-            &mut s,
-            &atlas,
-            wd.x + 5.0,
-            wd.y + 5.0,
-            click_size,
-            framebuffer,
-            false,
-            false,
-        );
-        assert!(
-            matches!(ui.focus, Some(FocusId::Cycle(_))),
-            "the click focuses the cycle button it hit"
-        );
-        assert!(
-            !ui.focus_from_keyboard,
-            "a click does not leave keyboard focus"
-        );
-
-        // The wheel over the list's empty margin scrolls it at a size where the
-        // page overflows, and the clicked cycle option stays put: no ButtonClick,
-        // no Changed.
-        let size = (427.0, 240.0);
-        let (_, top, bottom, content) = ui.layout(&s, size.0, size.1);
-        assert!(
-            content > bottom - top,
-            "the video page scrolls at this size"
-        );
-        let before = s.view_bobbing;
-        let start = ui.scroll;
-        let cursor = (2.0, (top + bottom) / 2.0);
-        let events = ui.wheel(&mut s, size, cursor, framebuffer, -1.0);
-        assert_eq!(s.view_bobbing, before, "the clicked option does not toggle");
-        assert!(!events.contains(&Event::ButtonClick), "no click reaches it");
-        assert!(!events.contains(&Event::Changed));
-        assert!(ui.scroll > start, "the list scrolls down instead");
-
-        // Keyboard focus keeps the documented divergence: the wheel steps it
-        // wherever the cursor is, even off the widget.
-        ui.focus = Some(FocusId::Cycle(Opt::ViewBobbing));
-        ui.focus_from_keyboard = true;
-        let events = ui.wheel(&mut s, size, cursor, framebuffer, -1.0);
-        assert_ne!(s.view_bobbing, before, "a keyboard-focused option cycles");
-        assert!(events.contains(&Event::ButtonClick));
-        assert!(events.contains(&Event::Changed));
-    }
-
-    #[test]
-    fn the_wheel_only_scrolls_with_the_extra_off() {
-        let mut s = Settings::default();
-        let mut ui = OptionsUi::default();
-        ui.show(Page::Video);
-        let framebuffer = [854, 480];
-        let size = (427.0, 240.0);
-        let (widgets, top, bottom, content) = ui.layout(&s, size.0, size.1);
-        assert!(
-            content > bottom - top,
-            "the video page scrolls at this size"
-        );
-        let (opt, over) = widgets
-            .iter()
-            .find_map(|wd| match wd.kind {
-                WKind::Button {
-                    act: Act::Cycle(opt),
-                    ..
-                } if !wd.list || (wd.y >= top && wd.y + wd.h <= bottom) => {
-                    Some((opt, (wd.x + 5.0, wd.y + 5.0)))
-                }
-                _ => None,
-            })
-            .expect("a visible cycle button");
-
-        s.extras.wheel_cycles_settings = false;
-        let before = format!("{s:?}");
-        let start = ui.scroll;
-        let events = ui.wheel(&mut s, size, over, framebuffer, -1.0);
-        assert_eq!(format!("{s:?}"), before, "the hovered option stays put");
-        assert!(!events.contains(&Event::Changed));
-        assert!(
-            ui.scroll > start,
-            "the list scrolls under the cursor instead"
-        );
-        // Keyboard focus doesn't take the wheel either.
-        ui.focus = Some(FocusId::Cycle(opt));
-        ui.focus_from_keyboard = true;
-        ui.wheel(&mut s, size, over, framebuffer, -1.0);
-        assert_eq!(format!("{s:?}"), before);
-
-        // On (the default), vanilla's CycleButton.mouseScrolled again.
-        s.extras.wheel_cycles_settings = true;
-        let before = format!("{s:?}");
-        let events = ui.wheel(&mut s, size, over, framebuffer, -1.0);
-        assert_ne!(format!("{s:?}"), before, "{opt:?} cycles");
-        assert!(events.contains(&Event::Changed));
     }
 
     #[test]
@@ -7820,253 +7701,5 @@ mod tests {
             events.contains(&Event::ButtonClick),
             "Enter on FocusId::Act must emit Event::ButtonClick"
         );
-    }
-
-    #[test]
-    fn the_music_page_button_follows_the_extra() {
-        let atlas = atlas();
-        let size = (960.0, 540.0);
-        let mut s = Settings::default();
-        let mut ui = OptionsUi::default();
-        ui.show(Page::Sound);
-        let open = |ui: &mut OptionsUi, s: &Settings| {
-            let (widgets, ..) = ui.layout(s, size.0, size.1);
-            widgets.into_iter().find(
-                |w| matches!(&w.kind, WKind::Button { act, .. } if *act == Act::Push(Page::Music)),
-            )
-        };
-        // The extra is off by default: Music & Sounds is vanilla's page.
-        assert!(open(&mut ui, &s).is_none());
-        s.extras.music_page = true;
-        assert!(open(&mut ui, &s).is_some(), "Music... once the extra is on");
-        // It is the last row: scroll the list to its end before clicking it.
-        ui.scroll(&s, size, -1000.0);
-        let (widgets, ..) = ui.layout(&s, size.0, size.1);
-        let open_button = widgets
-            .into_iter()
-            .find(
-                |w| matches!(&w.kind, WKind::Button { act, .. } if *act == Act::Push(Page::Music)),
-            )
-            .expect("Music... on the Music & Sounds page");
-        let events = ui.click(
-            &mut s,
-            &atlas,
-            open_button.x + open_button.w / 2.0,
-            open_button.y + open_button.h / 2.0,
-            size,
-            [854, 480],
-            false,
-            false,
-        );
-        assert_eq!(ui.page(), Page::Music);
-        assert!(events.contains(&Event::ListMusicTracks));
-    }
-
-    #[test]
-    fn the_music_page_plays_a_track_now_and_turns_tracks_off() {
-        let atlas = atlas();
-        let size = (960.0, 540.0);
-        let mut s = Settings::default();
-        let mut ui = OptionsUi {
-            music_groups: vec![MusicGroup {
-                label: "horizon.pages.music.overworld".into(),
-                tracks: vec![
-                    MusicTrack {
-                        event: "minecraft:music.game".into(),
-                        id: "minecraft:music/game/calm1".into(),
-                    },
-                    MusicTrack {
-                        event: "minecraft:music.overworld.forest".into(),
-                        id: "minecraft:music/game/bromeliad".into(),
-                    },
-                ],
-            }],
-            ..OptionsUi::default()
-        };
-        ui.show(Page::Music);
-        let at = |ui: &mut OptionsUi, s: &Settings, want: &Act| {
-            let (widgets, ..) = ui.layout(s, size.0, size.1);
-            let w = widgets
-                .into_iter()
-                .find(|w| matches!(&w.kind, WKind::Button { act, .. } if act == want))
-                .expect("button");
-            (w.x + w.w / 2.0, w.y + w.h / 2.0)
-        };
-        // The left of a row plays that track now, from its own pool (a biome
-        // pool's track plays from that pool).
-        let calm1 = "minecraft:music/game/calm1";
-        let (x, y) = at(
-            &mut ui,
-            &s,
-            &Act::PlayMusicTrack("minecraft:music.game".into(), calm1.into()),
-        );
-        let events = ui.click(&mut s, &atlas, x, y, size, [854, 480], false, false);
-        assert!(events.contains(&Event::PlayMusicTrack(
-            "minecraft:music.game".into(),
-            calm1.into()
-        )));
-        let bromeliad = "minecraft:music/game/bromeliad";
-        let (x, y) = at(
-            &mut ui,
-            &s,
-            &Act::PlayMusicTrack("minecraft:music.overworld.forest".into(), bromeliad.into()),
-        );
-        let events = ui.click(&mut s, &atlas, x, y, size, [854, 480], false, false);
-        assert!(events.contains(&Event::PlayMusicTrack(
-            "minecraft:music.overworld.forest".into(),
-            bromeliad.into()
-        )));
-        // The right of a row turns it off, and the game saves that on `Changed`.
-        let (x, y) = at(&mut ui, &s, &Act::MusicTrackOn(calm1.into(), true));
-        let events = ui.click(&mut s, &atlas, x, y, size, [854, 480], false, false);
-        assert!(events.contains(&Event::Changed));
-        assert_eq!(s.extras.music_off, [calm1.to_owned()]);
-        // And back on.
-        let (x, y) = at(&mut ui, &s, &Act::MusicTrackOn(calm1.into(), false));
-        let events = ui.click(&mut s, &atlas, x, y, size, [854, 480], false, false);
-        assert!(events.contains(&Event::Changed));
-        assert!(s.extras.music_off.is_empty());
-    }
-
-    #[test]
-    fn options_cycle_button_cycles_forward_and_shift_click_cycles_backward_with_wrapping() {
-        let atlas = atlas();
-        let mut s = Settings::default();
-        let mut ui = OptionsUi::default();
-        ui.show(Page::Chat);
-        let size = (480.0, 480.0);
-        let (widgets, _, _, _) = ui.layout(&s, size.0, size.1);
-        let button = widgets
-            .iter()
-            .find(|wd| {
-                matches!(
-                    wd.kind,
-                    WKind::Button {
-                        active: true,
-                        act: Act::Cycle(Opt::ChatVisibility),
-                        ..
-                    }
-                )
-            })
-            .expect("ChatVisibility must be a cycle button");
-        let (x, y) = (button.x + 1.0, button.y + 1.0);
-
-        // Initial chat_visibility is 0
-        assert_eq!(s.chat_visibility, 0);
-
-        // 1. Feature without shift (normal click): cycles forward (+1)
-        assert_eq!(
-            ui.click(&mut s, &atlas, x, y, size, [854, 480], false, false),
-            vec![Event::ButtonClick, Event::Changed]
-        );
-        assert_eq!(s.chat_visibility, 1);
-
-        assert_eq!(
-            ui.click(&mut s, &atlas, x, y, size, [854, 480], false, false),
-            vec![Event::ButtonClick, Event::Changed]
-        );
-        assert_eq!(s.chat_visibility, 2);
-
-        // 3. Wrap-around forward (at max value, normal click wraps to min / 0)
-        assert_eq!(
-            ui.click(&mut s, &atlas, x, y, size, [854, 480], false, false),
-            vec![Event::ButtonClick, Event::Changed]
-        );
-        assert_eq!(s.chat_visibility, 0);
-
-        // 4. Wrap-around backward (at min / 0, shift-click wraps to max)
-        ui.shift = true;
-        assert_eq!(
-            ui.click(&mut s, &atlas, x, y, size, [854, 480], false, false),
-            vec![Event::ButtonClick, Event::Changed]
-        );
-        assert_eq!(s.chat_visibility, 2);
-
-        // 2. Feature with shift: cycles backward (-1)
-        assert_eq!(
-            ui.click(&mut s, &atlas, x, y, size, [854, 480], false, false),
-            vec![Event::ButtonClick, Event::Changed]
-        );
-        assert_eq!(s.chat_visibility, 1);
-
-        assert_eq!(
-            ui.click(&mut s, &atlas, x, y, size, [854, 480], false, false),
-            vec![Event::ButtonClick, Event::Changed]
-        );
-        assert_eq!(s.chat_visibility, 0);
-        ui.shift = false;
-
-        // Also test Opt::Particles on Page::Video
-        ui.show(Page::Video);
-        let (widgets, _, _, _) = ui.layout(&s, size.0, size.1);
-        let button = widgets
-            .iter()
-            .find(|wd| {
-                matches!(
-                    wd.kind,
-                    WKind::Button {
-                        active: true,
-                        act: Act::Cycle(Opt::Particles),
-                        ..
-                    }
-                )
-            })
-            .expect("Particles must be a cycle button");
-        let (px, py) = (button.x + 1.0, button.y + 1.0);
-
-        // Initial particles is 0
-        assert_eq!(s.particles, 0);
-
-        // Forward
-        ui.click(&mut s, &atlas, px, py, size, [854, 480], false, false);
-        assert_eq!(s.particles, 1);
-        ui.click(&mut s, &atlas, px, py, size, [854, 480], false, false);
-        assert_eq!(s.particles, 2);
-        // Wrap forward
-        ui.click(&mut s, &atlas, px, py, size, [854, 480], false, false);
-        assert_eq!(s.particles, 0);
-
-        // Wrap backward with shift
-        ui.shift = true;
-        ui.click(&mut s, &atlas, px, py, size, [854, 480], false, false);
-        assert_eq!(s.particles, 2);
-        // Backward with shift
-        ui.click(&mut s, &atlas, px, py, size, [854, 480], false, false);
-        assert_eq!(s.particles, 1);
-        ui.click(&mut s, &atlas, px, py, size, [854, 480], false, false);
-        assert_eq!(s.particles, 0);
-        ui.shift = false;
-
-        // Also verify Act::Extra on Page::Extras
-        ui.show(Page::Extras);
-        let (widgets, _, _, _) = ui.layout(&s, size.0, size.1);
-        if let Some(extra_btn) = widgets.iter().find(|wd| {
-            matches!(
-                wd.kind,
-                WKind::Button {
-                    active: true,
-                    act: Act::Extra(crate::extras::Item::CosmeticsOthers),
-                    ..
-                }
-            )
-        }) {
-            let (ex, ey) = (extra_btn.x + 1.0, extra_btn.y + 1.0);
-            use horizon_cosmetics::prefs::Others;
-            assert_eq!(s.extras.cosmetics_others, Others::Shown);
-
-            // Forward
-            ui.click(&mut s, &atlas, ex, ey, size, [854, 480], false, false);
-            assert_eq!(s.extras.cosmetics_others, Others::NameTags);
-
-            // Backward with shift
-            ui.shift = true;
-            ui.click(&mut s, &atlas, ex, ey, size, [854, 480], false, false);
-            assert_eq!(s.extras.cosmetics_others, Others::Shown);
-
-            // Wrap-around backward with shift
-            ui.click(&mut s, &atlas, ex, ey, size, [854, 480], false, false);
-            assert_eq!(s.extras.cosmetics_others, Others::Hidden);
-            ui.shift = false;
-        }
     }
 }

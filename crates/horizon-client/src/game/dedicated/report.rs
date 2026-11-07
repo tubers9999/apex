@@ -327,7 +327,6 @@ mod tests {
             name,
             ms,
             cpu_ms: ms,
-            depth: 0,
         }
     }
 

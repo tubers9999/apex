@@ -330,7 +330,8 @@ impl Game<'_> {
             self.debug_options = Some(s);
             return;
         }
-        let shift = self.has_shift_down();
+        let shift =
+            self.keys.contains(&KeyCode::ShiftLeft) || self.keys.contains(&KeyCode::ShiftRight);
         s.search.focused = ui::hovered(
             self.cursor,
             s.search.x,
@@ -430,8 +431,8 @@ impl Game<'_> {
             return;
         }
         let shortcut = self.edit_shortcut(event);
-        let ctrl = self.has_control_down_with_quirk();
-        let shift = self.has_shift_down();
+        let ctrl = self.keys.contains(&KeyCode::ControlLeft);
+        let shift = self.keys.contains(&KeyCode::ShiftLeft);
         let types_text = self.types_text();
         let Some(s) = &mut self.debug_options else {
             return;

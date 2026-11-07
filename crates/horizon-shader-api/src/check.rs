@@ -181,7 +181,18 @@ pub fn check(pack: &Pack) -> Result<Report, Vec<Problem>> {
                     .overrides
                     .iter()
                     .any(|(_, o)| o.name.as_deref() == Some(&option.id))
-            });
+            }) || m.reflection.as_ref().and_then(|r| r.option.as_deref())
+                == Some(option.id.as_str())
+                || m.shadow.as_ref().is_some_and(|s| {
+                    s.option.as_deref() == Some(option.id.as_str())
+                        || s.resolution_option.as_deref() == Some(option.id.as_str())
+                        || s.distance_option.as_deref() == Some(option.id.as_str())
+                })
+                || m.displacement.as_ref().is_some_and(|d| {
+                    d.option.as_deref() == Some(option.id.as_str())
+                        || d.cells_option.as_deref() == Some(option.id.as_str())
+                        || d.steps_option.as_deref() == Some(option.id.as_str())
+                });
             if !used {
                 problems.push(problem(
                     crate::MANIFEST,
@@ -231,16 +242,6 @@ pub fn check_stage(pack: &Pack, kind: StageKind, file: &str) -> Result<CheckedSt
     let module = parse(&own)?;
     own.text.truncate(entries.1.start);
     let mut problems = signature(&module, kind, file);
-    if kind == StageKind::Material && pack.manifest.displacement.is_some() {
-        problems.extend(function_signature(
-            &module,
-            "displacement",
-            &["DisplacementInput"],
-            "f32",
-            crate::stages::DISPLACEMENT_SIGNATURE,
-            file,
-        ));
-    }
     problems.extend(api_rules(&module, kind, &own));
     problems.extend(options(&module, &pack.manifest.options, file));
     if !problems.is_empty() {
@@ -366,41 +367,6 @@ fn signature(module: &naga::Module, kind: StageKind, file: &str) -> Vec<Problem>
             args.join(", "),
             result.as_deref().unwrap_or("()"),
             kind.signature()
-        ),
-    )]
-}
-
-/// The module defines `fn <name>(<args>) -> <output>`, written out as `expected`.
-fn function_signature(
-    module: &naga::Module,
-    name: &str,
-    args_expected: &[&str],
-    output: &str,
-    expected: &str,
-    file: &str,
-) -> Vec<Problem> {
-    let found = module
-        .functions
-        .iter()
-        .find(|(_, f)| f.name.as_deref() == Some(name));
-    let Some((_, f)) = found else {
-        return vec![problem(file, format!("defines no `{expected}`"))];
-    };
-    let args: Vec<String> = f
-        .arguments
-        .iter()
-        .map(|a| type_name(module, a.ty))
-        .collect();
-    let result = f.result.as_ref().map(|r| type_name(module, r.ty));
-    if args == args_expected && result.as_deref() == Some(output) {
-        return Vec::new();
-    }
-    vec![problem(
-        file,
-        format!(
-            "`fn {name}({}) -> {}` should be `{expected}`",
-            args.join(", "),
-            result.as_deref().unwrap_or("()"),
         ),
     )]
 }

@@ -26,10 +26,32 @@ pub(super) const HELP: &[&str] = &[
 /// The controllers and the state the game last acted on.
 #[derive(Default)]
 pub(super) struct Pads {
+    #[cfg(target_os = "android")]
+    pub(super) custom_keys: std::collections::HashSet<KeyCode>,
+    #[cfg(target_os = "android")]
+    pub(super) custom_pressed_at: std::collections::HashMap<String, u64>,
+    #[cfg(target_os = "android")]
+    pub(super) late_custom_releases: Vec<String>,
+    #[cfg(target_os = "android")]
+    pub(super) hardware_keys: std::collections::HashSet<KeyCode>,
+    #[cfg(target_os = "android")]
+    last_input_mode: Option<horizon_client::android_gamepad::InputMode>,
+    #[cfg(target_os = "android")]
+    pub(super) touch_shield: bool,
+    #[cfg(target_os = "android")]
+    pub(super) touch: horizon_client::touch::TouchControls,
+    /// Track hotbar slot touch hold for auto-drop (and Shift full-stack drop).
+    #[cfg(target_os = "android")]
+    pub(super) hotbar_touch: Option<(u64, usize, Instant, Instant)>,
+    /// Keep a released tap's ray until the tick consumed its queued click.
+    #[cfg(target_os = "android")]
+    pub(super) touch_aim: Option<[f32; 2]>,
+    #[cfg(target_os = "android")]
+    pub(super) touch_ui: horizon_client::touch_ui::TouchUi,
     /// Splitscreen: this player's pad, read by `PadRouter` for every game, instead of the pads.
     pub(super) feed: Option<PadState>,
     /// The real controllers and the DualSense's output.
-    #[cfg(feature = "controllers")]
+    #[cfg(all(feature = "controllers", not(target_os = "android")))]
     devices: hardware::Devices,
     /// The virtual pad of `horizon-ctl pad`.
     injected: PadState,
@@ -45,9 +67,6 @@ pub(super) struct Pads {
     late_releases: Vec<Button>,
     /// The merged state of the last poll.
     pub(super) state: PadState,
-    /// The hardware's buttons at the last poll, for `input-log`'s `pad`
-    /// events: the merged state hides which source moved.
-    last_hardware: PadState,
     /// The pad drove the game last (the mouse and keyboard hand control back).
     pub(super) in_use: bool,
     pub(super) style: GlyphStyle,
@@ -59,7 +78,7 @@ pub(super) struct Pads {
     health: HealthWatch,
 }
 
-#[cfg(feature = "controllers")]
+#[cfg(all(feature = "controllers", not(target_os = "android")))]
 mod hardware;
 pub(super) use hardware::{PadId, PadRouter};
 
@@ -77,7 +96,7 @@ pub(in crate::game) enum PadEvent {
 
 /// A build without the `controllers` feature (the server build, which must not need libudev): no
 /// hardware pads, only `horizon-ctl pad`'s virtual one.
-#[cfg(not(feature = "controllers"))]
+#[cfg(any(not(feature = "controllers"), target_os = "android"))]
 mod hardware {
     use super::{super::Game, Pads};
     use horizon_client::gamepad::{PadState, Pulse, Rumble};
@@ -85,6 +104,10 @@ mod hardware {
 
     impl Pads {
         pub(super) fn read(&mut self) -> PadState {
+            #[cfg(target_os = "android")]
+            return horizon_client::android_runtime::keypad_state()
+                .merge(&horizon_client::android_runtime::gamepad_state());
+            #[cfg(not(target_os = "android"))]
             PadState::default()
         }
         pub(in crate::game) fn release_hardware(&mut self) {}
@@ -117,42 +140,75 @@ mod hardware {
     }
 
     impl Game<'_> {
-        pub(super) fn pad_output_off(&mut self) {}
-        pub(super) fn pad_output_frame(&mut self) {}
-        pub(in crate::game) fn pad_close_output(&mut self) {}
-        pub(super) fn pad_vibrate(&mut self, _: Rumble, _: Pulse) {}
+        pub(super) fn pad_output_off(&mut self) {
+            #[cfg(target_os = "android")]
+            crate::platform::cancel_vibration();
+        }
+        pub(super) fn pad_output_frame(&mut self) {
+            #[cfg(target_os = "android")]
+            if !self.settings.controller.vibration || !self.pad.touch.settings.vibrate {
+                crate::platform::cancel_vibration();
+            }
+        }
+        pub(in crate::game) fn pad_close_output(&mut self) {
+            self.pad_output_off();
+        }
+        pub(super) fn pad_vibrate(&mut self, _: Rumble, pulse: Pulse) {
+            #[cfg(target_os = "android")]
+            crate::platform::vibrate(pulse);
+            #[cfg(not(target_os = "android"))]
+            let _ = pulse;
+        }
         pub(super) fn pad_devices_status(&self) -> Value {
-            json!({ "backend": false, "controllers": [] })
+            json!({ "backend": cfg!(target_os = "android"), "controllers": [], "android_native_input": cfg!(target_os = "android") })
         }
     }
 }
 
 impl Pads {
-    /// The digital buttons the person's pad changed since the last poll.
-    pub(super) fn hardware_edges(&mut self, hardware: PadState) -> Vec<(Button, bool)> {
-        let edges = Button::ALL
-            .into_iter()
-            .filter_map(|button| {
-                let was = self.last_hardware.held(button);
-                let now = hardware.held(button);
-                (was != now).then_some((button, now))
-            })
-            .collect();
-        self.last_hardware = hardware;
-        edges
-    }
-
-    /// A replay's pad button, in place of `pad`'s line.
-    pub(super) fn inject_button(&mut self, button: Button, down: bool) {
-        self.injected.set(button, down);
-    }
-    /// A replay ended: let go of everything it held.
-    pub(super) fn clear_injected(&mut self) {
-        self.injected = PadState::default();
-    }
-
-    /// Include releases delayed until the next simulation tick.
+    /// Include releases delayed until the next simulation tick, plus Android custom touch holds/latches.
     pub(super) fn holds_action(&self, settings: &gamepad::PadSettings, action: &str) -> bool {
+        #[cfg(target_os = "android")]
+        {
+            let custom_held = match action {
+                "key.sneak" => {
+                    self.custom_keys.contains(&KeyCode::ShiftLeft)
+                        || self.custom_keys.contains(&KeyCode::ShiftRight)
+                        || self
+                            .touch
+                            .held_custom_tokens()
+                            .chain(self.late_custom_releases.iter().map(String::as_str))
+                            .any(|t| {
+                                matches!(
+                                    t,
+                                    "key.keyboard.left.shift"
+                                        | "key.keyboard.right.shift"
+                                        | "action:key.sneak"
+                                )
+                            })
+                }
+                "key.sprint" => {
+                    self.custom_keys.contains(&KeyCode::ControlLeft)
+                        || self.custom_keys.contains(&KeyCode::ControlRight)
+                        || self
+                            .touch
+                            .held_custom_tokens()
+                            .chain(self.late_custom_releases.iter().map(String::as_str))
+                            .any(|t| {
+                                matches!(
+                                    t,
+                                    "key.keyboard.left.control"
+                                        | "key.keyboard.right.control"
+                                        | "action:key.sprint"
+                                )
+                            })
+                }
+                _ => false,
+            };
+            if custom_held {
+                return true;
+            }
+        }
         settings.binding(action).is_some_and(|button| {
             self.edges.is_held(button) || self.late_releases.contains(&button)
         })
@@ -166,10 +222,62 @@ impl Pads {
 }
 
 impl Game<'_> {
+    #[cfg(target_os = "android")]
+    pub(super) fn touch_shield_available(&self) -> bool {
+        self.held()
+            .into_iter()
+            .chain(self.offhand.as_ref())
+            .any(|s| self.blocks_attacks(s).is_some())
+    }
+    #[cfg(target_os = "android")]
+    pub(super) fn android_inventory_controls(&self) -> bool {
+        self.settings.touch.inventory_controls
+            && matches!(self.screen, Screen::Inventory | Screen::Creative)
+    }
     /// Once per loop iteration: read the pads and act on button changes.
     pub(super) fn poll_pads(&mut self, event_loop: &dyn EventLoopCtl) {
+        #[cfg(target_os = "android")]
+        if !matches!(self.screen, Screen::Playing | Screen::Options | Screen::Paused)
+            && self.pad.touch.editor.is_some()
+        {
+            self.pad.touch.cancel_editor();
+        }
+        #[cfg(target_os = "android")]
+        {
+            crate::performance::configure_gpu_profile(
+                crate::device_runtime::preferences().gpu_profile,
+                &crate::backend::game_home(),
+            );
+            self.pad.touch.toggle_crouch = self.settings.toggle_crouch;
+            self.pad.touch.in_inventory =
+                matches!(self.screen, Screen::Inventory | Screen::Creative);
+            self.pad.touch.inventory_mode = self.android_inventory_controls();
+            if !self.pad.touch.in_inventory {
+                self.pad.touch.inventory_shift = false;
+            }
+            self.android_virtual_mouse_clicks(event_loop);
+            let active = horizon_client::android_runtime::active_input();
+            if self.pad.last_input_mode.replace(active).is_some_and(|old| {
+                old == horizon_client::android_gamepad::InputMode::KeyboardMouse && old != active
+            }) {
+                for key in std::mem::take(&mut self.pad.hardware_keys) {
+                    self.android_key_up(key);
+                }
+                horizon_client::android_runtime::clear_keypad();
+            }
+            if !self.focused {
+                self.pad.touch.clear();
+                horizon_client::android_runtime::clear_keypad();
+            } else if self.pad_in_menu() {
+                self.pad.touch.clear_world_gesture();
+                if !self.android_inventory_controls() {
+                    horizon_client::android_runtime::clear_keypad();
+                }
+            }
+            self.android_custom_events();
+        }
         let settings = &self.settings.controller;
-        if !settings.enabled {
+        if !settings.enabled && !cfg!(target_os = "android") {
             self.pad_output_off();
             if self.pad.state != PadState::default() {
                 self.pad.state = PadState::default();
@@ -181,24 +289,75 @@ impl Game<'_> {
             self.pad_menu_frame(event_loop);
             return;
         }
+        #[cfg(target_os = "android")]
+        {
+            crate::platform::poll_gamepad_connections();
+            if !self.settings.controller.enabled || !self.focused {
+                horizon_client::android_runtime::clear_gamepads();
+            }
+            self.pad.touch.force_crosshair =
+                !crate::touch_visible() || self.settings.keypad.enabled;
+        }
         let hardware = match self.pad.feed {
             Some(state) => state,
             None => self.pad.read(),
         };
-        // A person's pad, for `input-log` and the repro recording; the virtual
-        // pad is an agent's `pad` line and is recorded as that.
-        let hardware_edges = self.pad.hardware_edges(hardware);
-        for (button, down) in hardware_edges {
-            self.note_input(
-                super::input_trace::InputOrigin::User,
-                super::input_trace::TraceKind::Pad {
-                    button: button.name().to_owned(),
-                    action: if down { "down" } else { "up" }.to_owned(),
-                },
-            );
-        }
         self.ui.options.pad_style = self.settings.controller.glyphs.resolve(self.pad.style);
         let state = hardware.merge(&self.pad.injected);
+        #[cfg(target_os = "android")]
+        let state = {
+            self.pad.touch.shield_available = self.touch_shield_available();
+            // #71: a crouch toggled on land would keep sinking, descending or
+            // dismounting once the player swims, flies or rides; there the
+            // button holds, so the toggle ends.
+            if crate::touch_visible()
+                && (!self.settings.toggle_crouch || self.android_touch_descending())
+                && self.toggles.drop_pad_toggle(SNEAK)
+            {
+                self.sync_toggle(SNEAK);
+            }
+            let mut touch = self.pad.touch.poll_state();
+            self.pad.touch_shield = crate::touch_visible()
+                && !self.pad_in_menu()
+                && self.touch_shield_available()
+                && if self.settings.touch.shield_button {
+                    self.pad.touch.shield_held()
+                } else {
+                    self.pad.touch.sneaking || touch.held(Button::RightStick)
+                };
+            if self.pad.touch_shield {
+                touch.triggers[0] = 1.0;
+            }
+            if let Some(point) = self.pad.touch.aim {
+                self.pad.touch_aim = Some(point);
+            }
+            if self.pad.touch.aim.is_some()
+                && self.pad.touch.holding
+                && (self.pad.touch.holding_use
+                    || self.touch_item_held_use()
+                    || self.touch_entity_accepts_use())
+            {
+                touch.triggers = [1.0, 0.0];
+                self.pad.touch.latch_use();
+            }
+            if let Some(held_use) = self.pad.touch.take_tap() {
+                if self.entity_targeted() && self.using.is_none() && self.screen == Screen::Playing
+                {
+                    // Resolve the entity attack now, never as held LMB. A mob
+                    // disappearing before the next tick cannot expose a block.
+                    if self.remote.is_some() {
+                        self.remote_start_attack();
+                    } else {
+                        self.attack();
+                    }
+                } else if !held_use {
+                    // Preserve normal block placement and empty-hand interaction.
+                    // Items with a use action wait for the long-press instead.
+                    touch.triggers[0] = 1.0;
+                }
+            }
+            state.merge(&touch)
+        };
         self.pad.virtual_input = self.pad.injected != PadState::default();
         for button in std::mem::take(&mut self.pad.taps) {
             self.pad.injected.set(button, false);
@@ -229,10 +388,22 @@ impl Game<'_> {
                 self.pad.late_releases.push(button);
             }
         }
+        #[cfg(target_os = "android")]
+        for token in std::mem::take(&mut self.pad.late_custom_releases) {
+            if !ticking || self.pad.custom_pressed_at.get(&token) != Some(&self.ticks) {
+                self.android_dispatch_custom_token(&token, false);
+            } else {
+                self.pad.late_custom_releases.push(token);
+            }
+        }
         for (button, down) in edges {
             self.pad_edge(event_loop, button, down);
         }
         self.pad_menu_frame(event_loop);
+        #[cfg(target_os = "android")]
+        if state.triggers == [0.0; 2] && self.pad.late_releases.is_empty() {
+            self.pad.touch_aim = None;
+        }
     }
 
     fn pad_edge(&mut self, event_loop: &dyn EventLoopCtl, button: Button, down: bool) {
@@ -283,7 +454,15 @@ impl Game<'_> {
                 return Ok(());
             }
         } else if button == Button::Start {
+            #[cfg(target_os = "android")]
+            if down {
+                self.audio.play_button_click();
+            }
             return if down { self.pad_back() } else { Ok(()) };
+        }
+        #[cfg(target_os = "android")]
+        if down && playing && button == Button::North {
+            self.audio.play_button_click();
         }
         // Releases always reach the mappings, so nothing stays held when a
         // screen opened in between.
@@ -291,6 +470,122 @@ impl Game<'_> {
             self.pad_action(action, down)?;
         }
         Ok(())
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn touch_entity_accepts_use(&self) -> bool {
+        if [
+            self.boat_hit().map(|h| h.1),
+            self.cart_hit().map(|h| h.1),
+            self.armor_stand_hit().map(|h| h.1),
+            self.frame_hit().map(|h| h.1),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|distance| self.before_block(distance))
+        {
+            return true;
+        }
+        self.mob_hit()
+            .filter(|(_, distance)| self.before_block(*distance))
+            .is_some_and(|(i, _)| {
+                self.remote_mob_takes(i, horizon_client::first_person::Hand::Main)
+                    || self.remote_mob_takes(i, horizon_client::first_person::Hand::Off)
+            })
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn touch_context_use(&self) -> bool {
+        if self.touch_entity_accepts_use()
+            || [
+                self.boat_hit().map(|h| h.1),
+                self.cart_hit().map(|h| h.1),
+                self.armor_stand_hit().map(|h| h.1),
+                self.frame_hit().map(|h| h.1),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|d| self.before_block(d))
+        {
+            return true;
+        }
+        let Some(hit) = self.pick() else {
+            return false;
+        };
+        let state = self.world.block(hit.pos[0], hit.pos[1], hit.pos[2]);
+        let b = self.res.behaviours();
+        let data = b.data(state);
+        let p = b.props;
+        let table = &b.table;
+        use horizon_world::level::classes::Class;
+        data.chain.iter().any(|c| match c {
+            Class::Door | Class::TrapDoor => {
+                data.set_type.as_ref().is_some_and(|s| s.can_open_by_hand)
+            }
+            Class::Cake | Class::CandleCake => {
+                self.creative
+                    || self
+                        .player
+                        .as_ref()
+                        .is_some_and(|p| p.health.food.food < 20)
+            }
+            Class::Composter => table.int(state, p.level) == 8,
+            Class::CaveVines | Class::CaveVinesPlant => table.bool(state, p.berries),
+            Class::SweetBerryBush => table.int(state, p.age) > 1,
+            Class::Repeater | Class::Comparator | Class::DaylightDetector | Class::RedstoneWire => {
+                self.mode != horizon_client::command::args::GameMode::Adventure
+            }
+            Class::FenceGate
+            | Class::Button
+            | Class::Lever
+            | Class::Note
+            | Class::Bell
+            | Class::FlowerPot
+            | Class::DragonEgg
+            | Class::AbstractBed
+            | Class::RespawnAnchor
+            | Class::AbstractFurnace
+            | Class::Anvil
+            | Class::Barrel
+            | Class::Beacon
+            | Class::BrewingStand
+            | Class::CartographyTable
+            | Class::Chest
+            | Class::Crafter
+            | Class::CraftingTable
+            | Class::Dispenser
+            | Class::EnchantingTable
+            | Class::EnderChest
+            | Class::Grindstone
+            | Class::Hopper
+            | Class::Loom
+            | Class::ShulkerBox
+            | Class::Sign
+            | Class::SmithingTable
+            | Class::Stonecutter
+            | Class::Lectern => true,
+            _ => false,
+        })
+    }
+
+    /// Touch fly/swim down and dismount are held even when ground sneaking
+    /// is toggled. Any water counts, not only the sprint-swim pose: a toggled
+    /// crouch there sinks the player (#71).
+    pub(super) fn android_touch_descending(&self) -> bool {
+        #[cfg(target_os = "android")]
+        {
+            self.pad.touch.vertical_movement
+                || self.pad.touch.swimming
+                || self.pad.touch.mounted
+                || self
+                    .player
+                    .as_ref()
+                    .is_some_and(|p| p.fluids.was_touching_water)
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            false
+        }
     }
 
     /// A bound action: a vanilla mapping acts as its default key or mouse
@@ -304,8 +599,33 @@ impl Game<'_> {
                 }
                 Ok(())
             }
+            #[cfg(target_os = "android")]
+            "key.sprint" => {
+                // The touch button must always land, screen or not.
+                self.hold_toggle(1, down)?;
+                if !down
+                    && crate::touch_visible()
+                    && self.settings.touch.sprint_toggle
+                    && let Some(player) = &mut self.player
+                {
+                    player.sprinting = false;
+                }
+                Ok(())
+            }
             "key.sneak"
-                if self.settings.controller.toggle_sneak && !self.settings.toggle_crouch =>
+                if self.settings.controller.toggle_sneak
+                    && {
+                        #[cfg(target_os = "android")]
+                        {
+                            !crate::touch_visible()
+                        }
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            true
+                        }
+                    }
+                    && !self.settings.toggle_crouch
+                    && !self.android_touch_descending() =>
             {
                 // A stick click flips sneaking instead of holding it, as
                 // vanilla's toggle crouch does: a screen opening releases it
@@ -316,17 +636,21 @@ impl Game<'_> {
                 let screen_open = self.screen != Screen::Playing || self.title.is_some();
                 self.toggles.pad_toggle(SNEAK, screen_open);
                 self.sync_toggle(SNEAK);
-                self.key_pressed(KeyCode::ShiftLeft, KeyCode::ShiftLeft)
+                self.key_pressed(KeyCode::ShiftLeft)
             }
+            // The touch button must always land, screen or not.
+            "key.sneak" => self.hold_toggle(0, down),
             _ => {
                 let default = KeyBinds::default_of(action);
                 if let Some(button) = mouse_button(default) {
-                    if self.title.is_none() && self.screen == Screen::Playing {
+                    // A menu may open between press and release. Always deliver
+                    // the release so mining/use cannot remain held behind Options.
+                    if !down || (self.title.is_none() && self.screen == Screen::Playing) {
                         self.play_mouse(button, down)?;
                     }
                     Ok(())
                 } else if let Some(key) = key_code(default) {
-                    self.mapped_key(key, down, false, key)
+                    self.mapped_key(key, down, false)
                 } else {
                     Ok(())
                 }
@@ -354,20 +678,61 @@ impl Game<'_> {
             self.close_book();
             return Ok(());
         }
-        self.key_pressed(KeyCode::Escape, KeyCode::Escape)
+        self.key_pressed(KeyCode::Escape)
     }
 
     /// The left stick as the move vector, while playing.
     pub(super) fn pad_move(&self) -> Option<[f32; 2]> {
         let settings = &self.settings.controller;
-        if !settings.enabled || self.pad_in_menu() || !self.pad_focused() {
+        if (!settings.enabled && !cfg!(target_os = "android"))
+            || self.pad_in_menu()
+            || !self.pad_focused()
+        {
             return None;
         }
-        gamepad::move_vector(self.pad.state.left, settings.move_deadzone)
+        #[cfg(target_os = "android")]
+        {
+            if horizon_client::android_runtime::active_input()
+                == horizon_client::android_gamepad::InputMode::Controller
+                || (self.pad.touch.settings.analog_movement
+                    && self.pad.touch.settings.mode != horizon_client::touch::Mode::Dpad)
+            {
+                gamepad::move_vector(self.pad.state.left, settings.move_deadzone)
+            } else {
+                gamepad::java_move_vector(self.pad.state.left, settings.move_deadzone)
+            }
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            gamepad::move_vector(self.pad.state.left, settings.move_deadzone)
+        }
     }
 
     /// The right stick turns the view, once per frame (`Entity.turn`).
     pub(super) fn pad_look(&mut self, seconds: f32) {
+        #[cfg(target_os = "android")]
+        {
+            let enabled = self.settings.touch.gyroscope
+                && !self.pad_in_menu()
+                && self.player.is_some()
+                && self.pad_focused()
+                && crate::touch_visible();
+            let rotation = if enabled {
+                crate::platform::display_rotation()
+            } else {
+                0
+            };
+            let delta = crate::device_runtime::gyro(
+                enabled,
+                self.settings.touch.gyro_sensitivity,
+                rotation,
+            );
+            if enabled {
+                self.tutorial
+                    .mouse(f64::from(delta[0]), f64::from(delta[1]));
+                self.turn_player(f64::from(delta[0] / 0.15), f64::from(delta[1] / 0.15));
+            }
+        }
         let settings = &self.settings.controller;
         if !settings.enabled || self.pad_in_menu() || self.player.is_none() || !self.pad_focused() {
             return;
@@ -382,6 +747,7 @@ impl Game<'_> {
         if yaw == 0.0 && pitch == 0.0 {
             return;
         }
+        self.tutorial.mouse(f64::from(yaw), f64::from(pitch));
         self.turn_player(f64::from(yaw / 0.15), f64::from(pitch / 0.15));
     }
 
@@ -389,7 +755,14 @@ impl Game<'_> {
     /// playing (a pad lying idle while the mouse plays stays still).
     pub(super) fn pad_rumble(&mut self, rumble: Rumble) {
         let settings = &self.settings.controller;
-        if !settings.enabled || !settings.vibration || !self.pad.in_use {
+        #[cfg(target_os = "android")]
+        if !self.pad.touch.settings.vibrate {
+            return;
+        }
+        if (!settings.enabled && !cfg!(target_os = "android"))
+            || !settings.vibration
+            || !self.pad.in_use
+        {
             return;
         }
         let Some(pulse) = rumble.pulse() else {

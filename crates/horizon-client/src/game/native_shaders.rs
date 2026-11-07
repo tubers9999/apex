@@ -67,24 +67,7 @@ impl Game<'_> {
                 layers.map(|(name, layer)| (name.as_str(), *layer))
             };
             let tags = pack.manifest.sprite_tags(sprites());
-            let mut materials = pack.manifest.sprite_materials(sprites());
-            // `blocks` lists: the sprites their models draw with, where no pattern named them.
-            let listed = pack.manifest.material_blocks();
-            if !listed.is_empty() {
-                let macros = horizon_shaders::Macros::standard();
-                let properties = horizon_shaders::Properties::parse(&listed, &macros);
-                let ids = horizon_shaders::BlockIds::parse(&properties);
-                let table = super::shader_packs::block_id_table(&self.pack, &ids);
-                for (layer, id) in table.iter().step_by(2).enumerate() {
-                    let layer = layer as u32;
-                    if *id > 0 && !materials.iter().any(|m| m.0 == layer) {
-                        materials.push((layer, *id as u32));
-                    }
-                }
-                materials.sort_unstable();
-            }
-            let layers = sprites().map(|(_, l)| l as usize + 1).max().unwrap_or(0);
-            let translucent = pack.manifest.translucent_layers(&materials, layers);
+            let materials = pack.manifest.sprite_materials(sprites());
             // Each light-giving block state's `[[lights]]` colour, with its level.
             let mut lights = horizon_client::gfx::block_light::LightTable::default();
             if !pack.manifest.lights.is_empty() {
@@ -100,11 +83,11 @@ impl Game<'_> {
             let labels = renderer
                 .set_native_shader_pack(Some((report, constants, tags, materials, lights)))
                 .map_err(|e| vec![e])?;
-            Ok((pack.manifest, labels, translucent))
+            Ok((pack.manifest, labels))
         });
         // The resources were loaded without a native pack, so without the resource packs'
         // LabPBR maps its material stage reads: load them once, now that one runs.
-        if result.as_ref().is_ok_and(|(m, _, _)| m.material.is_some())
+        if result.as_ref().is_ok_and(|(m, _)| m.material.is_some())
             && !horizon_client::sprites::labpbr_maps()
         {
             horizon_client::sprites::set_labpbr_maps(true);
@@ -113,8 +96,7 @@ impl Game<'_> {
         }
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         match result {
-            Ok((m, labels, translucent)) => {
-                self.set_translucent_layers(translucent);
+            Ok((m, labels)) => {
                 log::info!(
                     "shader pack {} {}: {} in {} ms",
                     m.id,

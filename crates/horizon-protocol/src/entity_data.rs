@@ -4,7 +4,6 @@
 //! them are kept.
 use crate::{
     Result,
-    adapter::ids,
     buf::{Codec, Reader, Writer},
     item::{Slot, Stack, Template},
 };
@@ -180,11 +179,6 @@ pub enum PositionSource {
 impl Particle {
     pub fn read(r: &mut Reader) -> Result<Particle> {
         let id = r.varint()?;
-        let id = if id == MOD_PARTICLE_ID {
-            id
-        } else {
-            ids::particle(id)
-        };
         // A native mod's type: the namespaced name follows the sentinel id.
         if id == MOD_PARTICLE_ID {
             return Ok(Particle {
@@ -194,7 +188,7 @@ impl Particle {
         }
         // `minecraft:particle_type` registry order as of 26.3.
         let data = match id {
-            1 | 2 | 36 | 121 | 125 => Some(ParticleData::State(ids::block_state(r.varint()?))),
+            1 | 2 | 36 | 121 | 125 => Some(ParticleData::State(r.varint()?)),
             28 | 46 | 52 => Some(ParticleData::Color(r.i32()?)),
             21 => {
                 let color = r.i32()?;
@@ -361,9 +355,9 @@ fn read_value(kind: i32, r: &mut Reader) -> Result<Option<Value>> {
         // VarInt-encoded: direction, block states, optional ints, pose, the
         // holder-registry variants (cat to zombie nautilus, painting) and the
         // enum states (sniffer to weathering copper), arm, dye.
-        // Block states as an older server numbers them (the optional one sends air, 0, for none).
-        BLOCK_STATE | OPTIONAL_BLOCK_STATE => Value::Id(ids::block_state(r.varint()?)),
         DIRECTION
+        | BLOCK_STATE
+        | OPTIONAL_BLOCK_STATE
         | OPTIONAL_UNSIGNED_INT
         | POSE
         | CAT_VARIANT..=ZOMBIE_NAUTILUS_VARIANT
@@ -434,7 +428,7 @@ impl Codec<Vec<(u8, i32, Value)>> for EntityData {
             if index == 0xFF {
                 return Ok(out);
             }
-            let kind = ids::entity_data_serializer(r.varint()?);
+            let kind = r.varint()?;
             match read_value(kind, r)? {
                 Some(v) => out.push((index, kind, v)),
                 None => {

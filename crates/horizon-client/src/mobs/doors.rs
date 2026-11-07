@@ -217,10 +217,7 @@ impl Goal for BreakDoor {
             self.last_break_progress = progress;
         }
         if self.break_time == DOOR_BREAK_TIME && self.valid_difficulty(cx.w) {
-            cx.events.push(MobEvent::BreakDoor {
-                mob: m.id,
-                pos: door,
-            });
+            cx.events.push(MobEvent::BreakDoor { pos: door });
         }
     }
 }

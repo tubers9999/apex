@@ -24,8 +24,7 @@
 // for Horizon, for an SDR back buffer, inverted finite depth, the whole screen as the
 // interpolation rect and no distortion field. What differs from AMD's (interpolation.rs
 // lists why):
-// - the motion vectors are the camera's, from the depth (`prepare`), already unjittered,
-//   or an entity's own where `object_motion` has one;
+// - the motion vectors come from the depth and the camera (`prepare`), already unjittered;
 // - the vector fields and reconstructed depths are storage buffers of atomics;
 // - both inpainting pyramids are a pass per level, and textures of their own;
 // - the interpolation writes one texture and the inpainting another (rgba16float can't
@@ -86,8 +85,6 @@ struct Params {
 @group(0) @binding(31) var interpolated_out: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(32) var interpolated: texture_2d<f32>;
 @group(0) @binding(33) var output: texture_storage_2d<rgba16float, write>;
-// What moved on its own (motion.wgsl): xy its motion vector where z is 1.
-@group(0) @binding(34) var object_motion: texture_2d<f32>;
 
 const EPSILON: f32 = 1e-03;
 const RECONSTRUCTED_DEPTH_WEIGHT_THRESHOLD: f32 = EPSILON;
@@ -358,11 +355,7 @@ fn prepare_pass(@builtin(global_invocation_id) gid: vec3<u32>) {
             }
         }
     }
-    let object = textureLoad(object_motion, nearest_coord, 0);
-    var mv = camera_motion_vector(nearest_coord, load_input_depth(nearest_coord));
-    if object.z > 0.5 {
-        mv = object.xy;
-    }
+    let mv = camera_motion_vector(nearest_coord, load_input_depth(nearest_coord));
     textureStore(dilated_depth_out, p, vec4(nearest, 0.0, 0.0, 0.0));
     textureStore(dilated_mv_out, p, vec4(mv, 0.0, 0.0));
     // ReconstructPrevDepth

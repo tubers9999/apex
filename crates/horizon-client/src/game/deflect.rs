@@ -3,7 +3,7 @@
 //! `ProjectileDeflection.AIM_DEFLECT` instead of hurting anything. It flies on
 //! along the player's view and is the player's now (`Projectile.deflect`
 //! sets the owner), so a ghast it meets dies of it (`Ghast.isReflectedFireball`).
-use super::{Game, lan::LanHost, ray_box, view_vector};
+use super::{Game, ray_box};
 use horizon_client::{
     mobs::Who,
     projectiles::{Projectile, ProjectileKind},
@@ -125,7 +125,7 @@ impl Game<'_> {
             self.creatures.projectiles[i].kind,
             ProjectileKind::ShulkerBullet { .. }
         ) {
-            self.hit_shulker_bullet(None, i);
+            self.hit_shulker_bullet(i);
         } else {
             self.deflect(i);
         }
@@ -135,7 +135,7 @@ impl Game<'_> {
     /// `ShulkerBullet.hurtServer` from a player's blow: the hurt sound, fifteen crit
     /// particles (`sendParticles`, spread 0.2) and `destroy`. The blow is
     /// `Player.attack` on a target that is not a mob: its sounds, then the swing.
-    pub(super) fn hit_shulker_bullet(&mut self, host: Option<&LanHost>, i: usize) {
+    pub(super) fn hit_shulker_bullet(&mut self, i: usize) {
         let p = self.creatures.projectiles.remove(i);
         let at = [p.position.x, p.position.y, p.position.z];
         self.audio
@@ -144,7 +144,7 @@ impl Game<'_> {
             let options = horizon_client::particles::ParticleOptions::simple(ty);
             self.particles
                 .send_particles(&options, at, [0.2, 0.2, 0.2], 0.0, 15);
-            self.lan_level_particles(host, &options, at, [0.2, 0.2, 0.2], 0.0, 15, None);
+            self.lan_level_particles(&options, at, [0.2, 0.2, 0.2], 0.0, 15, None);
         }
         let (_, _, _, magic) = self.melee_damage("minecraft:shulker_bullet", false);
         self.vehicle_attack_sounds(p.aabb(), magic.then_some(p.id as i32));
@@ -195,7 +195,7 @@ impl Game<'_> {
 
     /// `Projectile.deflect(AIM_DEFLECT, player, player, true)`.
     pub(super) fn deflect(&mut self, i: usize) {
-        let dir = view_vector(self.yaw, self.pitch);
+        let dir = self.interaction_direction();
         let (guest, owner_uuid) = (self.lan_acting, Some(self.acting_player_uuid()));
         let p = &mut self.creatures.projectiles[i];
         p.velocity = Vec3::new(dir[0], dir[1], dir[2]);
@@ -241,7 +241,7 @@ mod tests {
         // A shulker bullet takes a blow, with no pick radius round its box.
         let bullet = Projectile::new(
             ProjectileKind::ShulkerBullet {
-                target: Some(Who::Player),
+                target: Who::Player,
                 dir: None,
                 steps: 0,
                 delta: [0.0; 3],

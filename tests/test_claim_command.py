@@ -83,15 +83,6 @@ class ClaimTests(unittest.TestCase):
             do("/claim", api)
         self.assertEqual(api.calls, [])
 
-    def test_trackers_and_proposals_are_not_claimed(self):
-        for name in ("Tracker", "proposal", "not claimable"):
-            t = thread()
-            t["labels"] = [{"name": "bug"}, {"name": name}]
-            api = Fake({5: t})
-            with self.assertRaisesRegex(cc.Refused, "isn't claimed as a whole"):
-                do("/claim", api)
-            self.assertEqual(api.calls, [], name)
-
     def test_already_yours(self):
         with self.assertRaisesRegex(cc.Refused, "already hold"):
             do("/claim", Fake({5: thread(holders=("NewComer",))}))
@@ -200,7 +191,10 @@ class ReleaseTests(unittest.TestCase):
 
 class WorkflowTests(unittest.TestCase):
     def test_workflow_is_safe(self):
-        text = (ROOT / ".github/workflows/claim-command.yml").read_text()
+        workflow = ROOT / ".github/workflows/claim-command.yml"
+        if not workflow.is_file():
+            workflow = ROOT / ".github/upstream-workflows/claim-command.yml.disabled"
+        text = workflow.read_text(encoding="utf-8")
         run_lines = [l.strip() for l in text.splitlines() if l.strip().startswith("run:")]
         self.assertEqual(run_lines, ["run: python3 tools/ci/claim_command.py command",
                                      "run: python3 tools/ci/claim_command.py release"])

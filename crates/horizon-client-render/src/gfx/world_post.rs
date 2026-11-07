@@ -10,8 +10,6 @@
 
 use glam::{DMat4, DVec3, Mat4, Vec2};
 
-/// The least a world is scaled to when memory runs out.
-const MIN_SCALE: f32 = 0.25;
 /// The TAA history format: 8 bits would band as frames accumulate.
 const HISTORY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
@@ -67,6 +65,8 @@ pub struct Post {
     pub upscale: f32,
     /// TAA runs this frame (`jitter`): not on the title screen or under a shader pack.
     taa_on: bool,
+    /// Whether an external/native shader pack is active this frame.
+    pub pack_active: bool,
     target: Option<WorldTarget>,
     taa_resources: Option<TaaResources>,
     /// Frames jittered so far (the Halton index), and which history the next resolve writes.
@@ -245,6 +245,7 @@ impl Post {
             taa: false,
             upscale: 1.0,
             taa_on: false,
+            pack_active: false,
             target: None,
             taa_resources,
             taa_frame: 0,
@@ -260,7 +261,13 @@ impl Post {
 
     /// The world's rendered size and the size it is shown at (TAA's history).
     fn sizes(&self, window: [u32; 2]) -> ([u32; 2], [u32; 2]) {
-        let output = window.map(|v| ((v as f32 * self.scale).round() as u32).clamp(1, 8192));
+        let effective_scale =
+            if cfg!(target_os = "android") && self.pack_active && self.scale > 0.99 {
+                0.75
+            } else {
+                self.scale
+            };
+        let output = window.map(|v| ((v as f32 * effective_scale).round() as u32).clamp(1, 8192));
         let upscale = if self.taa_on { self.upscale } else { 1.0 };
         (
             output.map(|v| ((v as f32 / upscale).round() as u32).max(1)),
@@ -301,16 +308,6 @@ impl Post {
         Mat4::from_translation(jitter.extend(0.0))
     }
 
-    /// This frame's jitter in rendered pixels, y down (FSR's `jitterOffset`); zero
-    /// without TAA.
-    pub fn jitter_pixels(&self) -> [f32; 2] {
-        let Some(size) = self.size().filter(|_| self.taa_on) else {
-            return [0.0; 2];
-        };
-        let j = self.taa_this_frame.jitter;
-        [j[0] * size[0] as f32 * 0.5, -j[1] * size[1] as f32 * 0.5]
-    }
-
     /// The world's colour and depth targets this frame, or `None` to draw
     /// it straight to the screen.
     /// `always`: a target even at scale 1 without anti-aliasing (a shader pack reads it).
@@ -320,69 +317,17 @@ impl Post {
         window: [u32; 2],
         always: bool,
     ) -> Option<(wgpu::TextureView, wgpu::TextureView)> {
+        self.pack_active = always;
         if self.scale == 1.0 && !self.antialias && !self.taa_on && !always {
             self.target = None;
             return None;
         }
-        // The old target goes first: a slider drag would otherwise hold the old and the new
-        // targets together, and the sum is what runs a small GPU out of memory.
-        loop {
-            let (size, output) = self.sizes(window);
-            let history_size = self.taa_on.then_some(output);
-            if self
-                .target
-                .as_ref()
-                .is_some_and(|t| t.size == size && t.taa.as_ref().map(|h| h.size) == history_size)
-            {
-                break;
-            }
-            self.target = None;
-            // Errors raised are fatal, so catch an out-of-memory one and scale down. A texture
-            // that failed is invalid, so its view fails validation too: catch that as well.
-            let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
-            let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-            let target = self.build_target(device, size, history_size);
-            let error = pollster::block_on(memory.pop()).or(pollster::block_on(validation.pop()));
-            if error.is_none() {
-                // New textures: no history yet.
-                self.taa_this_frame.jitter[2] = 1.0;
-                self.target = Some(target);
-                break;
-            }
-            drop(target);
-            if self.scale <= MIN_SCALE {
-                log::warn!(
-                    "Horizon renderer: no video memory for the scaled world at {size:?} ({}); drawing at the window's size",
-                    error.map_or_else(String::new, |e| e.to_string())
-                );
-                self.scale = 1.0;
-                self.target = None;
-                return None;
-            }
-            let reduced = (self.scale * 0.75).max(MIN_SCALE);
-            log::warn!(
-                "Horizon renderer: out of video memory for the scaled world at {size:?}; resolution scale {:.2} -> {reduced:.2} ({})",
-                self.scale,
-                error.map_or_else(String::new, |e| e.to_string())
-            );
-            self.scale = reduced;
-            if self.scale == 1.0 && !self.antialias && !self.taa_on && !always {
-                return None;
-            }
-        }
-        self.target
+        let (size, output) = self.sizes(window);
+        let history_size = self.taa_on.then_some(output);
+        if self
+            .target
             .as_ref()
-            .map(|t| (t.color.clone(), t.depth.clone()))
-    }
-
-    /// The world's colour and depth targets at `size`, and TAA's history when `history_size`
-    /// is set.
-    fn build_target(
-        &self,
-        device: &wgpu::Device,
-        size: [u32; 2],
-        history_size: Option<[u32; 2]>,
-    ) -> WorldTarget {
+            .is_none_or(|t| t.size != size || t.taa.as_ref().map(|h| h.size) != history_size)
         {
             let make_tex = |label, size: [u32; 2], format, usage| {
                 device.create_texture(&wgpu::TextureDescriptor {
@@ -458,14 +403,19 @@ impl Post {
                     show,
                 })
             });
-            WorldTarget {
+            // New textures: no history yet.
+            self.taa_this_frame.jitter[2] = 1.0;
+            self.target = Some(WorldTarget {
                 size,
                 color,
                 depth,
                 group,
                 taa,
-            }
+            });
         }
+        self.target
+            .as_ref()
+            .map(|t| (t.color.clone(), t.depth.clone()))
     }
 
     /// The size of the world's own target, when it has one.
@@ -497,15 +447,14 @@ impl Post {
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         screen: &wgpu::TextureView,
-        mut timing: Option<&mut super::pack_timing::PassTiming>,
     ) {
         let Some(target) = &self.target else { return };
         let Some(taa) = target.taa.as_ref().filter(|_| self.taa_previous.is_some()) else {
-            self.finish_with(encoder, screen, &target.group, timing.as_deref_mut());
+            self.finish_with(encoder, screen, &target.group);
             return;
         };
         let Some(res) = &self.taa_resources else {
-            self.finish_with(encoder, screen, &target.group, timing.as_deref_mut());
+            self.finish_with(encoder, screen, &target.group);
             return;
         };
         let i = (self.taa_frame % 2) as usize;
@@ -521,7 +470,6 @@ impl Post {
         })];
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Horizon TAA"),
-            timestamp_writes: timing.as_deref_mut().and_then(|t| t.writes("TAA")),
             color_attachments: &attachments,
             ..Default::default()
         });
@@ -529,7 +477,7 @@ impl Post {
         pass.set_bind_group(0, &taa.resolve[i], &[]);
         pass.draw(0..3, 0..1);
         drop(pass);
-        self.finish_with(encoder, screen, &taa.show[i], timing);
+        self.finish_with(encoder, screen, &taa.show[i]);
     }
 
     /// Draw what `group` binds (`bind`) onto `screen`.
@@ -538,7 +486,15 @@ impl Post {
         encoder: &mut wgpu::CommandEncoder,
         screen: &wgpu::TextureView,
         group: &wgpu::BindGroup,
-        timing: Option<&mut super::pack_timing::PassTiming>,
+    ) {
+        self.finish_in_rect(encoder, screen, group, None);
+    }
+    pub fn finish_in_rect(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        screen: &wgpu::TextureView,
+        group: &wgpu::BindGroup,
+        rect: Option<[u32; 4]>,
     ) {
         let attachments = [Some(wgpu::RenderPassColorAttachment {
             view: screen,
@@ -551,10 +507,13 @@ impl Post {
         })];
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Horizon post"),
-            timestamp_writes: timing.and_then(|t| t.writes("Post")),
             color_attachments: &attachments,
             ..Default::default()
         });
+        if let Some([x, y, w, h]) = rect {
+            pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
+            pass.set_scissor_rect(x, y, w, h);
+        }
         pass.set_pipeline(if self.antialias {
             &self.fxaa
         } else {
@@ -567,12 +526,7 @@ impl Post {
 
 /// This frame's clip space to the previous frame's, for camera-relative projections:
 /// a point `camera - previous_camera` further from the previous camera than from this one.
-pub(super) fn reprojection(
-    previous: DMat4,
-    previous_camera: DVec3,
-    current: DMat4,
-    camera: DVec3,
-) -> DMat4 {
+fn reprojection(previous: DMat4, previous_camera: DVec3, current: DMat4, camera: DVec3) -> DMat4 {
     previous * DMat4::from_translation(camera - previous_camera) * current.inverse()
 }
 
@@ -618,7 +572,8 @@ mod tests {
     }
 
     fn test_device() -> Option<(wgpu::Device, wgpu::Queue)> {
-        let instance = crate::gfx::test_gpu::instance();
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle().with_env());
         let adapter = pollster::block_on(instance.request_adapter(&Default::default())).ok()?;
         pollster::block_on(adapter.request_device(&Default::default())).ok()
     }

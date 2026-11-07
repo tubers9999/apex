@@ -16,7 +16,7 @@ const NATIVE_FALLING_MAX_SPEED: f64 = 3.9;
 
 /// What a mod's falling block does when it lands and when it hits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NativeFalling {
+pub(super) struct NativeFalling {
     /// `FallingBlockEntity.dropItem`: whether it drops as an item where it
     /// can't be placed.
     pub drop_item: bool,
@@ -54,7 +54,7 @@ impl Game<'_> {
     /// with nothing thrown, on a client's copy of the world, for another
     /// dimension, an air or unknown state, a chunk that isn't loaded, a value
     /// that isn't finite, or with 1024 falling blocks in the level already.
-    /// Each axis of `velocity` is cut to 3.9. API 81.
+    /// Each axis of `velocity` is cut to 3.9. API @API:native_falling_block@.
     pub(super) fn native_spawn_falling_block(
         &mut self,
         dimension: &str,
@@ -91,10 +91,8 @@ impl Game<'_> {
             damage.max = 40;
         }
         let at = Vec3::new(pos[0], pos[1], pos[2]);
-        self.next_entity += 1;
         self.falling.push(FallingBlock {
-            join: Default::default(),
-            id: self.next_entity,
+            id: 0,
             state,
             start_pos: cell,
             position: at,

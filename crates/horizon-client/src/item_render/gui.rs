@@ -6,9 +6,6 @@
 //! is oversized in the GUI (`GuiItemAtlas` draws each item into a scissored
 //! 16x16 slot; oversized items get a picture-in-picture of their bounds).
 use super::{Foil, Glint, ItemQuad, ItemRenderState, ItemRenderer, SpecialHost};
-use crate::cit::Rule;
-use crate::cit_glint::StackGlint;
-use crate::hud::cit_glint::{GlintTextures, layer_uv, vertex_color};
 use crate::hud::{HudBatch, Rect};
 use glam::{EulerRot, Mat4, Vec2, Vec3};
 use std::{collections::HashMap, f32::consts::PI, sync::Arc};
@@ -128,50 +125,6 @@ fn emit(batch: &mut HudBatch, fan: &[Point], color: impl Fn(Vec2) -> u32, glint:
     }
 }
 
-/// A stack's OptiFine CIT glint layers this frame.
-#[derive(Clone, Copy)]
-struct CitDraw<'a> {
-    glint: &'a StackGlint,
-    textures: &'a GlintTextures,
-    rules: &'a [Rule],
-    millis: f32,
-}
-
-/// The CIT glint layers over the item's clipped faces (`fans`, in draw order), bottom first:
-/// each layer is one run over all of them, blended as its rule says, at its intensity times
-/// the glint strength option (`HudBatch::glint_alpha`).
-fn emit_cit(batch: &mut HudBatch, fans: &[Vec<Point>], cit: CitDraw) {
-    let seconds = f64::from(cit.millis) / 1000.0;
-    for (i, layer) in cit.glint.layers.iter().enumerate() {
-        let Some(slot) = cit.textures.slot_of.get(layer.rule).copied().flatten() else {
-            continue;
-        };
-        let Some(constants) = cit.textures.slots.get(usize::from(slot)) else {
-            continue;
-        };
-        let intensity = cit.glint.intensity(i, seconds) * batch.glint_alpha;
-        if intensity <= 0.0 {
-            continue;
-        }
-        let glint = &cit.rules[layer.rule].glint;
-        let color = vertex_color(slot, intensity);
-        let uv = |v: Point| layer_uv(v.glint_uv, cit.millis, glint.speed, glint.rotation, 8.0);
-        let start = batch.vertices.len();
-        for fan in fans {
-            for k in 1..fan.len().saturating_sub(1) {
-                let corners = [fan[0], fan[k], fan[k + 1], fan[k + 1]];
-                batch.quad_glint(
-                    corners.map(|v| v.p.to_array()),
-                    corners.map(|v| v.uv),
-                    corners.map(uv),
-                    color,
-                );
-            }
-        }
-        batch.blend_since(start, crate::hud::Blend::CitGlint(constants.blend));
-    }
-}
-
 /// Submit, light, cull, sort and clip one item's quads into `batch` at GUI
 /// position `(x, y)`.
 #[allow(clippy::too_many_arguments)]
@@ -190,20 +143,50 @@ pub fn draw(
     if state.is_empty() {
         return;
     }
-    // A static item drawn where it was drawn before gives the same vertices:
-    // take them instead of submitting, sorting and clipping its quads again.
+    // An item drawn where it was drawn before gives the same base vertices (and
+    // for foil items, the same clipped glint triangles with updated scroll UVs):
+    // reuse them instead of submitting, sorting and clipping its quads again.
     let key = DrawnKey::of(state, renderer, sprites, x, y);
     if let Some(key) = &key
-        && let Some(drawn) = renderer
+        && let Some(cached) = renderer
             .gui_drawn
             .lock()
             .ok()
             .and_then(|d| d.get(key).cloned())
     {
-        batch.vertices.extend_from_slice(&drawn);
+        let base = batch.vertices.len();
+        batch.vertices.extend_from_slice(&cached.vertices);
+        if !cached.glint_quads.is_empty() {
+            let glint = Glint {
+                speed: glint_speed,
+                alpha: glint_alpha,
+                millis: time * 1000.0,
+                scale: 8.0,
+            };
+            batch.glint_alpha = glint_alpha;
+            for &(rel_start, model_uvs) in cached.glint_quads.iter() {
+                let uvs = model_uvs.map(|uv| glint.uv(uv));
+                for (k, &i) in [0usize, 1, 2, 0, 2, 3].iter().enumerate() {
+                    batch.vertices[base + rel_start + k].glint_uv = uvs[i];
+                }
+            }
+            for r in cached.glint_blends.iter() {
+                let range = base as u32 + r.start..base as u32 + r.end;
+                match batch.blends.last_mut() {
+                    Some((last, b))
+                        if last.end == range.start && *b == crate::hud::Blend::Additive =>
+                    {
+                        last.end = range.end;
+                    }
+                    _ => batch.blends.push((range, crate::hud::Blend::Additive)),
+                }
+            }
+        }
         return;
     }
     let start = batch.vertices.len();
+    let blends_start = batch.blends.len();
+    let mut glint_quads = Vec::new();
     draw_now(
         state,
         renderer,
@@ -216,6 +199,7 @@ pub fn draw(
         glint_speed,
         glint_alpha,
         None,
+        key.is_some().then_some((start, &mut glint_quads)),
     );
     if let Some(key) = key
         && let Ok(mut drawn) = renderer.gui_drawn.lock()
@@ -224,7 +208,24 @@ pub fn draw(
         if drawn.len() >= DRAWN_LIMIT {
             drawn.clear();
         }
-        drawn.insert(key, batch.vertices[start..].into());
+        let mut glint_blends = Vec::new();
+        for (r, b) in &batch.blends[blends_start..] {
+            if *b == crate::hud::Blend::Additive && r.end > start as u32 {
+                let s = r.start.max(start as u32) - start as u32;
+                let e = r.end - start as u32;
+                if s < e {
+                    glint_blends.push(s..e);
+                }
+            }
+        }
+        drawn.insert(
+            key,
+            Arc::new(GuiCachedItem {
+                vertices: batch.vertices[start..].into(),
+                glint_quads: glint_quads.into(),
+                glint_blends: glint_blends.into(),
+            }),
+        );
     }
 }
 
@@ -257,23 +258,29 @@ pub fn draw_scissored(
         0.0,
         0.0,
         Some(scissor),
+        None,
     );
 }
 
 /// Entries of `ItemRenderer::gui_drawn` before it starts over.
 const DRAWN_LIMIT: usize = 8192;
 
+pub(crate) struct GuiCachedItem {
+    pub vertices: Arc<[crate::hud::HudVertex]>,
+    pub glint_quads: Arc<[(usize, [[f32; 2]; 4])]>,
+    pub glint_blends: Arc<[std::ops::Range<u32>]>,
+}
+
 /// What a GUI item's vertices depend on: its layers' baked models (kept for the
-/// renderer's life, so their addresses name them), tints and transforms, the
-/// atlas, and the exact position. None for items whose drawing changes with time
-/// or the host: a glint, or a special model renderer.
+/// renderer's life, so their addresses name them), tints, foil and transforms,
+/// the atlas, and the exact position. None for special model renderers.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct DrawnKey {
     renderer: usize,
-    sprites: (usize, usize),
+    sprites: (usize, usize, bool),
     at: [u32; 2],
     oversized: bool,
-    layers: Vec<(usize, Vec<i32>, [u32; 16], bool)>,
+    layers: Vec<(usize, Vec<i32>, [u32; 16], bool, u8)>,
 }
 impl DrawnKey {
     fn of(
@@ -283,19 +290,22 @@ impl DrawnKey {
         x: f32,
         y: f32,
     ) -> Option<Self> {
-        if state.animated || state.cit_glint.is_some() {
-            return None;
-        }
         let layers = state
             .layers
             .iter()
             .map(|layer| match &layer.geometry {
-                super::LayerGeometry::Quads(baked) if layer.foil == super::FoilType::None => {
+                super::LayerGeometry::Quads(baked) => {
+                    let foil = match layer.foil {
+                        super::FoilType::None => 0u8,
+                        super::FoilType::Standard => 1u8,
+                        super::FoilType::Special => 2u8,
+                    };
                     Some((
                         Arc::as_ptr(baked) as usize,
                         layer.tints.clone(),
                         layer.matrix.to_cols_array().map(f32::to_bits),
                         layer.uses_block_light,
+                        foil,
                     ))
                 }
                 _ => None,
@@ -303,7 +313,11 @@ impl DrawnKey {
             .collect::<Option<Vec<_>>>()?;
         Some(Self {
             renderer: std::ptr::from_ref(renderer) as usize,
-            sprites: (std::ptr::from_ref(sprites) as usize, sprites.len()),
+            sprites: (
+                std::ptr::from_ref(sprites) as usize,
+                sprites.len(),
+                sprites.contains_key("misc/enchanted_glint_item"),
+            ),
             at: [x.to_bits(), y.to_bits()],
             oversized: state.oversized_in_gui,
             layers,
@@ -325,6 +339,7 @@ fn draw_now(
     glint_speed: f32,
     glint_alpha: f32,
     scissor: Option<[f32; 4]>,
+    glint_record: Option<(usize, &mut Vec<(usize, [[f32; 2]; 4])>)>,
 ) {
     let pose = Mat4::from_translation(Vec3::new(x + 8.0, y + 8.0, 0.0))
         * Mat4::from_scale(Vec3::new(16.0, -16.0, 16.0));
@@ -363,14 +378,7 @@ fn draw_now(
             scale: 8.0,
         });
     batch.glint_alpha = glint_alpha;
-    let cit = state.cit_glint.as_deref().zip(renderer.cit.as_ref());
-    let cit = cit.map(|(glint, models)| CitDraw {
-        glint,
-        textures: &models.glint_textures,
-        rules: &models.rules.rules,
-        millis: time * 1000.0,
-    });
-    draw_quads_with(&quads, lights, batch, rect, glint.as_ref(), cit);
+    draw_quads_recorded(&quads, lights, batch, rect, glint.as_ref(), glint_record);
 }
 
 /// Lights, culls, sorts far to near and clips `quads` (GUI positions) to
@@ -382,20 +390,17 @@ fn draw_quads(
     rect: [f32; 4],
     glint: Option<&Glint>,
 ) {
-    draw_quads_with(quads, lights, batch, rect, glint, None);
+    draw_quads_recorded(quads, lights, batch, rect, glint, None);
 }
 
-/// [`draw_quads`], then a stack's CIT glint layers over every face.
-fn draw_quads_with(
+fn draw_quads_recorded(
     quads: &[ItemQuad],
     lights: (Vec3, Vec3),
     batch: &mut HudBatch,
     rect: [f32; 4],
     glint: Option<&Glint>,
-    cit: Option<CitDraw>,
+    mut glint_record: Option<(usize, &mut Vec<(usize, [[f32; 2]; 4])>)>,
 ) {
-    // The faces the CIT layers go over once the item is drawn.
-    let mut fans = Vec::new();
     for face in depth::sort(quads) {
         let q = &quads[face.quad];
         let points: Vec<_> = face
@@ -416,15 +421,16 @@ fn draw_quads_with(
             }
             emit(batch, &fan, |_| color, None);
             if q.foil != Foil::None {
+                if let (Some(_), Some((base, rec))) = (glint, &mut glint_record) {
+                    for j in 1..fan.len().saturating_sub(1) {
+                        let corners = [fan[0], fan[j], fan[j + 1], fan[j + 1]];
+                        let rel = batch.vertices.len() - *base + (j - 1) * 6;
+                        rec.push((rel, corners.map(|v| v.glint_uv)));
+                    }
+                }
                 emit(batch, &fan, |_| color, glint);
             }
-            if cit.is_some() {
-                fans.push(fan);
-            }
         }
-    }
-    if let Some(cit) = cit {
-        emit_cit(batch, &fans, cit);
     }
 }
 
@@ -683,65 +689,6 @@ mod tests {
                 color_at(&batch, Vec2::new(4.0, y)),
                 Some(lit_color(&quads[2], (Vec3::Z, Vec3::Z)))
             );
-        }
-    }
-
-    #[test]
-    fn cit_layers_draw_once_over_the_whole_item() {
-        use crate::cit_glint::Global;
-        use crate::hud::Blend;
-        use crate::hud::cit_glint::Slot;
-        use horizon_optifine::Properties;
-        let rule = |name: &str, text: &str| {
-            let path = format!("assets/minecraft/optifine/cit/{name}.properties");
-            let text = format!("type=enchantment\ntexture=glint\n{text}");
-            Rule::parse(&path, &Properties::parse_equals_first(&text), |_| true).unwrap()
-        };
-        let rules = [
-            rule("shown", ""),
-            rule("fire", "layer=1\nenchantments=fire_aspect"),
-        ];
-        // Shared by level, and the stack has no Fire Aspect: that layer is at intensity 0.
-        let global = Global::parse(&Properties::parse_equals_first("method=average"));
-        let glint = StackGlint::new(&rules, &[0, 1], &[("minecraft:sharpness", 3)], &global);
-        assert_eq!(glint.layers.len(), 2);
-        let slot = |blend| Slot {
-            rgba: [1.0; 4],
-            blur: false,
-            blend,
-        };
-        let textures = GlintTextures {
-            width: 1,
-            height: 1,
-            slot_of: vec![Some(1), Some(0)],
-            slots: vec![slot(0), slot(1)],
-            ..GlintTextures::default()
-        };
-        let cit = CitDraw {
-            glint: &glint,
-            textures: &textures,
-            rules: &rules,
-            millis: 0.0,
-        };
-        let mut batch = HudBatch::new([320, 240]);
-        batch.glint_alpha = 0.5;
-        draw_quads_with(
-            &[face(0.0, 8.0, |_| 0.0, 0xFFFF_FFFF)],
-            (Vec3::Z, Vec3::Z),
-            &mut batch,
-            [0.0, 0.0, 16.0, 16.0],
-            None,
-            Some(cit),
-        );
-        // The square's two triangles, then the one layer over both: six vertices a triangle.
-        assert_eq!(batch.vertices.len(), 24);
-        assert_eq!(
-            batch.runs(),
-            [(0..12, Blend::Alpha), (12..24, Blend::CitGlint(1))]
-        );
-        for v in &batch.vertices[12..] {
-            // Slot 1 in red; full intensity at half the glint strength in alpha.
-            assert_eq!(v.color.to_le_bytes(), [1, 0, 0, 128]);
         }
     }
 

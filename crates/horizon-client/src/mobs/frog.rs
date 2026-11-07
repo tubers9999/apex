@@ -549,10 +549,9 @@ impl Goal for ShootTongue {
                     cx.events
                         .push(MobEvent::Sound("entity.frog.tongue", here, 2.0, 1.0));
                     set_pose(m, sync::USING_TONGUE);
-                    // `target.setDeltaMovement(vectorTo(frog).normalize().scale(0.75))`: the
-                    // target's own motion is replaced, and it is drawn in.
+                    // The target is drawn in at 0.75 a tick.
                     let pull = m.position.subtract(pos).normalize().scale(0.75);
-                    cx.events.push(MobEvent::SetVelocity {
+                    cx.events.push(MobEvent::Push {
                         target: Who::Mob(id),
                         velocity: [pull.x, pull.y, pull.z],
                     });
@@ -575,8 +574,6 @@ impl Goal for ShootTongue {
                     cx.events
                         .push(MobEvent::Sound("entity.frog.eat", here, 2.0, 1.0));
                     super::ai::do_hurt_target(m, Who::Mob(id), cx);
-                    // `if (!target.isAlive()) target.remove(KILLED)`: no death animation.
-                    cx.events.push(MobEvent::RemoveKilled { target: id });
                 }
             }
             Phase::EatAnimation => {

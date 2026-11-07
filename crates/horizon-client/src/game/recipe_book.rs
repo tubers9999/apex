@@ -167,6 +167,17 @@ impl Game<'_> {
             s.reset_blink();
         }
     }
+    #[cfg(target_os = "android")]
+    pub(super) fn recipe_search_value(&mut self) -> String {
+        if let Some(edit) = self.recipe_ui.search.as_mut() {
+            edit.move_cursor_to_end(false);
+        }
+        self.recipe_ui
+            .search
+            .as_ref()
+            .map(|s| s.value.clone())
+            .unwrap_or_default()
+    }
     /// Text typed (or one backspace) into the search box.
     pub(super) fn recipe_text(&mut self, text: Option<&str>, backspace: bool) {
         let Some(search) = self.recipe_ui.search.as_mut() else {
@@ -298,8 +309,6 @@ impl Game<'_> {
                 names: &self.pack.names,
                 trade: None,
                 maps: None,
-                limited_crafting: self.limited_crafting(),
-                known_recipes: Some(&self.level.recipe_book),
             };
             for i in 0..36 {
                 menu.set_player_item(i, self.inventory[i].clone());
@@ -354,7 +363,7 @@ impl Game<'_> {
         ui.client_known = Some(known.clone());
         ui.client_version += 1;
     }
-    /// Every entry of the book, in its order (`native_recipes`).
+    /// Every entry of the book, in its order (capability `recipes`).
     pub(super) fn recipe_book_entries(&mut self) -> Vec<Entry> {
         self.ensure_book();
         self.recipe_ui
@@ -363,19 +372,13 @@ impl Game<'_> {
             .map_or_else(Vec::new, |b| b.entries.clone())
     }
     /// The display ids the player's book holds, and a number that changes
-    /// whenever they do (`native_known_recipes`).
+    /// whenever they do (capability `recipes`).
     pub(super) fn recipe_book_displays(&mut self) -> (u64, Vec<i32>) {
         self.sync_client_book();
         (
             self.recipe_ui.client_version,
             self.recipe_ui.client.displays(),
         )
-    }
-    /// The book's model is made again from `Game::recipes` when next needed:
-    /// the server's recipes arrived, or a new session began.
-    pub(super) fn forget_book(&mut self) {
-        self.recipe_ui.book = None;
-        self.recipe_tables.categories = None;
     }
     fn ensure_book(&mut self) {
         if self.recipe_ui.book.is_none() {
@@ -400,25 +403,32 @@ impl Game<'_> {
         for s in self.inventory.iter().flatten() {
             (&s.item, s.count, s.damage).hash(&mut h);
         }
+        let crafting = self.active_book() == Some(BookType::Crafting);
         for slot in [
             100usize, 101, 102, 103, 104, 105, 106, 107, 108, 300, 301, 302,
         ] {
-            let stack =
-                if slot < 109 && self.active_book() == Some(BookType::Crafting) || slot >= 300 {
-                    self.slot_mut(slot).clone()
+            if (slot < 109 && crafting) || slot >= 300 {
+                if let Some(s) = self.slot_mut(slot).as_ref() {
+                    (true, &*s.item, s.count, s.damage).hash(&mut h);
                 } else {
-                    None
-                };
-            stack.map(|s| (s.item, s.count)).hash(&mut h);
+                    false.hash(&mut h);
+                }
+            } else {
+                false.hash(&mut h);
+            }
         }
         self.craft_size.hash(&mut h);
         self.recipe_ui.client_version.hash(&mut h);
         self.book_filtering(book_type).hash(&mut h);
-        self.recipe_ui.tab.map(|t| format!("{t:?}")).hash(&mut h);
+        self.recipe_ui
+            .tab
+            .as_ref()
+            .map(std::mem::discriminant)
+            .hash(&mut h);
         self.recipe_ui
             .search
             .as_ref()
-            .map(|s| s.value.clone())
+            .map(|s| s.value.as_str())
             .hash(&mut h);
         book_type.index().hash(&mut h);
         let key = h.finish();
@@ -712,9 +722,7 @@ impl Game<'_> {
         if let Some(search) = self.recipe_ui.search.as_mut() {
             search.x = xo + 25.0;
             search.y = yo + 13.0;
-            // RecipeBookComponent's magnifierIconPlacement: from the book's
-            // left edge plus eight to the search box's own left edge.
-            let magnifier = inside(cursor, xo + 8.0, yo + 13.0, search.x - xo, 14.0);
+            let magnifier = inside(cursor, xo + 8.0, yo + 13.0, 17.0, 14.0);
             if magnifier || inside(cursor, search.x, search.y, search.width, search.height) {
                 self.recipe_ui.search_drag = true;
                 search.focused = true;
@@ -970,14 +978,14 @@ impl Game<'_> {
         self.place_recipe(book_type, entry_index, use_max);
         true
     }
-    /// Whether the open screen takes `native_place_recipe`: a crafting grid's
+    /// Whether the open screen takes `recipes.place`: a crafting grid's
     /// book (the inventory's or a crafting table's).
     pub(super) fn mod_recipe_screen(&self) -> bool {
         self.screen == Screen::Inventory
             && self.active_book() == Some(BookType::Crafting)
             && !self.spectator()
     }
-    /// `native_place_recipe`: the book's click on the recipe with this display
+    /// `recipes.place`: the book's click on the recipe with this display
     /// id, refused as `handlePlaceRecipe` refuses it (no crafting screen,
     /// not in the player's book; an impossible one in `place_recipe`).
     pub(super) fn mod_place_recipe(&mut self, display_id: i32, all: bool) {
@@ -1322,6 +1330,12 @@ impl Game<'_> {
     /// out by `horizon_client::recipe_book_screen`.
     fn draw_book_panel(&mut self, batch: &mut HudBatch, book_type: BookType) {
         let (xo, yo) = self.book_origin(batch);
+        // Include the magnifier: clicking it focuses the same EditBox. This
+        // shared widget target also drives Android IME and controller focus.
+        horizon_client::widgets::target_as(
+            [xo + 8.0, yo + 13.0, 98.0, 14.0],
+            horizon_client::widgets::Kind::Field,
+        );
         let cursor = self.cursor;
         let atlas = &self.gui.atlas;
         let search = match self.recipe_ui.search.as_mut() {

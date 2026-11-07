@@ -326,14 +326,20 @@ impl Game<'_> {
                 (false, false) => "gui/sprites/widget/tab",
             };
             ui::nine_slice(batch, atlas, sprite, x, 0.0, tw, TAB_H, u32::MAX);
-            ui::menu_tab_label(
-                batch,
+            let label = Text::translate(key, &[]);
+            let lw = atlas.font.width_text(&label);
+            let color = if selected && active {
+                u32::MAX
+            } else {
+                0xFFA0_A0A0
+            };
+            batch.text_styled(
                 atlas,
-                &Text::translate(key, &[]),
-                (x, 0.0, tw, TAB_H),
-                selected,
-                active,
-                horizon_client::hud_overlays::now_ms(),
+                &label,
+                (x + (tw - lw) / 2.0).floor(),
+                8.0,
+                color,
+                true,
             );
             if selected {
                 batch.fill(atlas, x + 2.0, TAB_H - 3.0, tw - 4.0, 1.0, u32::MAX);

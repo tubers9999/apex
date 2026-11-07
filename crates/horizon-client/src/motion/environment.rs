@@ -1,6 +1,5 @@
 //! Player liquid travel and environmental damage over the shared fluid state.
 use super::*;
-use crate::breathing::{Breath, breathe, drown};
 use horizon_core::random::RandomSource;
 use horizon_world::{
     fluid::FluidKind,
@@ -58,12 +57,12 @@ impl MotionWorld<'_, '_, '_> {
             .state(self.block(eye))
             .is_some_and(|state| state.name == "minecraft:bubble_column");
         let submerged = self.player.is_eye_in_fluid(WATER) && !bubble_column;
-        let drowns = submerged
+        if submerged
             && !self.player.status.water_breathing
             && !self.player.status.breath_of_the_nautilus
             && !self.player.invulnerable
-            && !self.player.spectator;
-        let vanilla = if drowns {
+            && !self.player.spectator
+        {
             // decreaseAirSupply's getAttribute: the instance exists from now
             // on, even unmodified.
             let key = self.player.attributes.key("minecraft:oxygen_bonus");
@@ -75,44 +74,22 @@ impl MotionWorld<'_, '_, '_> {
                 .player
                 .attribute("minecraft:oxygen_bonus")?
                 .max(f64::from(self.player.respiration));
-            let sparing = oxygen > 0.0 && self.scene.random.next_double() >= 1.0 / (oxygen + 1.0);
-            Breath {
-                can_breathe: false,
-                consume: i32::from(!sparing),
-                refill: 0,
+            if oxygen <= 0.0 || self.scene.random.next_double() < 1.0 / (oxygen + 1.0) {
+                self.player.air -= 1;
             }
-        } else {
-            // The nautilus' breath keeps a submerged player's air as it is.
-            let held = submerged
-                && self.player.status.breath_of_the_nautilus
-                && !self.player.status.water_breathing;
-            Breath {
-                can_breathe: true,
-                consume: 1,
-                refill: if held { 0 } else { 4 },
-            }
-        };
-        // LivingBreatheEvent, on the server's copy of the player only.
-        let breath = if self.player.client_side {
-            vanilla
-        } else {
-            breathe(self.player.entity_id as u32, "minecraft:player", vanilla)
-        };
-        // LivingDrownEvent, likewise.
-        if let Some(drowning) = drown(
-            self.player.entity_id as u32,
-            "minecraft:player",
-            &mut self.player.air,
-            breath,
-            !self.player.client_side,
-        ) {
-            self.player.events.push(MotionEvent::Drown);
-            if let Some(damage) = drowning.damage {
+            if self.player.air <= -20 {
+                self.player.air = 0;
+                self.player.events.push(MotionEvent::Drown);
                 self.player.events.push(MotionEvent::Health(
-                    crate::health::HealthEvent::DrownDamage(damage),
+                    crate::health::HealthEvent::DrownDamage(2.0),
                 ));
-                self.environment_hurt("minecraft:drown", damage)?;
+                self.environment_hurt("minecraft:drown", 2.0)?;
             }
+        } else if !submerged
+            || !self.player.status.breath_of_the_nautilus
+            || self.player.status.water_breathing
+        {
+            self.player.air = (self.player.air + 4).min(300);
         }
         if self.player.is_in_lava() {
             self.player.ignite_for_ticks(300)?;

@@ -31,12 +31,16 @@ impl PaintingVariants {
     pub fn load(root: &std::path::Path) -> Self {
         let data = root.join("data/minecraft");
         let mut all = Vec::new();
-        if let Ok(folder) = horizon_world::json_folder::read(&data.join("painting_variant")) {
-            for file in &folder.files {
-                let name = file.name.as_str();
-                let Ok(v) =
-                    serde_json::from_slice::<serde_json::Value>(file.bytes().unwrap_or_default())
-                else {
+        if let Ok(entries) = std::fs::read_dir(data.join("painting_variant")) {
+            for e in entries.flatten() {
+                let path = e.path();
+                let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                let Ok(bytes) = std::fs::read(&path) else {
+                    continue;
+                };
+                let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
                     continue;
                 };
                 all.push(Variant {
@@ -53,15 +57,14 @@ impl PaintingVariants {
                 });
             }
         }
-        let placeable =
-            horizon_core::prepared_files::read(&data.join("tags/painting_variant/placeable.json"))
-                .ok()
-                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-                .and_then(|v| v["values"].as_array().cloned())
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|v| v.as_str().map(Arc::from))
-                .collect();
+        let placeable = std::fs::read(data.join("tags/painting_variant/placeable.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|v| v["values"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|v| v.as_str().map(Arc::from))
+            .collect();
         Self { all, placeable }
     }
     pub fn get(&self, id: &str) -> Option<&Variant> {
@@ -76,27 +79,6 @@ impl PaintingVariants {
 fn overlaps(a: ([f64; 3], [f64; 3]), b: ([f64; 3], [f64; 3])) -> bool {
     (0..3).all(|i| a.0[i] < b.1[i] && b.0[i] < a.1[i])
 }
-
-/// `HangingEntityItem.mayPlace` for a painting: not a floor or ceiling.
-/// Direction.get2DDataValue: south 0, west 1, north 2, east 3.
-fn painting_facing(face: [i32; 3]) -> Option<u8> {
-    if face[1] != 0 {
-        return None;
-    }
-    Some(match face {
-        [0, 0, 1] => 0,
-        [-1, 0, 0] => 1,
-        [0, 0, -1] => 2,
-        _ => 3,
-    })
-}
-/// Whether the camera, at the origin of `corners`' space, is on the side of the quad
-/// that `normal` points to.
-fn faces_camera(corners: &[glam::DVec3; 4], normal: glam::DVec3) -> bool {
-    let centre = (corners[0] + corners[1] + corners[2] + corners[3]) / 4.0;
-    normal.dot(-centre) > 0.0
-}
-
 impl Game<'_> {
     /// `HangingEntity.survives`: no block collision in the box, solid blocks
     /// (or diodes) behind it and no other painting overlapping it.
@@ -135,58 +117,16 @@ impl Game<'_> {
             .iter()
             .any(|o| o.id != p.id && overlaps(o.bounds(), (lo, hi)))
     }
-    /// `HangingEntityItem.useOn` on a client level: SUCCESS once
-    /// `Painting.create` finds a surviving variant (and the stack's
-    /// `painting/variant`, if any, also survives). The random pick and
-    /// spawn are the server's.
-    pub(super) fn painting_fits(&self, hit: &Hit, stack: &ItemStack) -> bool {
-        if &*stack.item != "minecraft:painting" {
-            return false;
-        }
-        let Some(facing) = painting_facing(hit.face) else {
-            return false;
-        };
-        let pos = [
-            hit.pos[0] + hit.face[0],
-            hit.pos[1],
-            hit.pos[2] + hit.face[2],
-        ];
-        let mut candidate = Painting {
-            id: self.next_entity.wrapping_add(1),
-            pos,
-            facing,
-            variant: Arc::from(""),
-            width: 1,
-            height: 1,
-            check_interval: 0,
-        };
-        let mut any = false;
-        for id in &self.painting_variants.placeable {
-            let Some(v) = self.painting_variants.get(id) else {
-                continue;
-            };
-            (candidate.width, candidate.height) = (v.width, v.height);
-            if self.painting_survives(&candidate) {
-                any = true;
-                break;
-            }
-        }
-        if !any {
-            return false;
-        }
-        if let Some(v) = self.painting_variants.of_stack(stack).cloned() {
-            (candidate.variant, candidate.width, candidate.height) = (v.id, v.width, v.height);
-            return self.painting_survives(&candidate);
-        }
-        true
-    }
     /// `HangingEntityItem.useOn` for a painting against `hit`'s face.
     pub(super) fn place_painting(&mut self, hit: &Hit, stack: &ItemStack) -> bool {
-        if &*stack.item != "minecraft:painting" {
+        if &*stack.item != "minecraft:painting" || hit.face[1] != 0 {
             return false;
         }
-        let Some(facing) = painting_facing(hit.face) else {
-            return false;
+        let facing = match hit.face {
+            [0, 0, 1] => 0,
+            [-1, 0, 0] => 1,
+            [0, 0, -1] => 2,
+            _ => 3,
         };
         let pos = [
             hit.pos[0] + hit.face[0],
@@ -234,9 +174,6 @@ impl Game<'_> {
                 return false;
             }
         }
-        if self.hanging_place_cancelled("minecraft:painting", pos) {
-            return true;
-        }
         let (lo, hi) = candidate.bounds();
         let at = [
             (lo[0] + hi[0]) / 2.0,
@@ -250,8 +187,6 @@ impl Game<'_> {
         if !self.creative {
             self.consume_held();
         }
-        // HangingEntityItem.useOn returns SUCCESS: the hand swings.
-        self.swing_arm();
         true
     }
     /// The painting under the crosshair within reach and its distance.
@@ -281,13 +216,8 @@ impl Game<'_> {
         }
         best
     }
-    /// `Painting.hurtServer` -> kill and `dropItem`. False when a mod kept it
-    /// (`native_hanging_break`): it stays at `index`.
-    pub(super) fn break_painting(&mut self, index: usize, by_player: bool) -> bool {
-        let pos = self.paintings[index].pos;
-        if self.hanging_break_cancelled("minecraft:painting", pos, by_player) {
-            return false;
-        }
+    /// `Painting.hurtServer` -> kill and `dropItem`.
+    pub(super) fn break_painting(&mut self, index: usize, by_player: bool) {
         let p = self.paintings.remove(index);
         let (lo, hi) = p.bounds();
         let at = [
@@ -297,12 +227,12 @@ impl Game<'_> {
         ];
         self.world.modified.insert((p.pos[0] >> 4, p.pos[2] >> 4));
         if !self.ui.rules.bool("entity_drops") {
-            return true;
+            return;
         }
         self.audio
             .play("minecraft:entity.painting.break", Some(at), 1.0, 1.0);
         if by_player && self.creative {
-            return true;
+            return;
         }
         // HangingEntity.spawnAtLocation: 0.15 out from the wall.
         let s = p.step().map(f64::from);
@@ -318,7 +248,6 @@ impl Game<'_> {
             [0.0; 3],
             10,
         );
-        true
     }
     /// BlockAttachedEntity.tick: check survival every 100 ticks.
     pub(super) fn tick_paintings(&mut self) {
@@ -336,7 +265,8 @@ impl Game<'_> {
             if self.paintings[i].check_interval >= 100 {
                 self.paintings[i].check_interval = 0;
                 let p = self.paintings[i].clone();
-                if !self.painting_survives(&p) && self.break_painting(i, false) {
+                if !self.painting_survives(&p) {
+                    self.break_painting(i, false);
                     continue;
                 }
             }
@@ -385,28 +315,22 @@ impl Game<'_> {
             );
             let light = self.world.light(p.pos[0], p.pos[1], p.pos[2]);
             let packed = (u32::from(light >> 4) * 16) | ((u32::from(light & 15) * 16) << 8);
-            let mut quad =
-                |corners: [glam::DVec3; 4], normal: glam::DVec3, uv: [[f32; 2]; 4], shade: f32| {
-                    // Back faces are culled, as the entity pipeline culls them: inside the
-                    // painting's box nothing of it shows. `corners` are relative to the camera.
-                    if !faces_camera(&corners, normal) {
-                        return;
-                    }
-                    let k = (255.0 * shade) as u32;
-                    let color = 0xFF00_0000 | k << 16 | k << 8 | k;
-                    for (p, uv) in corners.iter().zip(uv) {
-                        out.push(Vertex {
-                            normal: [0; 4],
-                            pos: p.as_vec3().to_array(),
-                            uv,
-                            layer: 0,
-                            color,
-                            light: packed,
+            let mut quad = |corners: [glam::DVec3; 4], uv: [[f32; 2]; 4], shade: f32| {
+                let k = (255.0 * shade) as u32;
+                let color = 0xFF00_0000 | k << 16 | k << 8 | k;
+                for (p, uv) in corners.iter().zip(uv) {
+                    out.push(Vertex {
+                        normal: [0; 4],
+                        pos: p.as_vec3().to_array(),
+                        uv,
+                        layer: 0,
+                        color,
+                        light: packed,
 
-                            glint_uv: [0.0, 0.0],
-                        });
-                    }
-                };
+                        glint_uv: [0.0, 0.0],
+                    });
+                }
+            };
             let full = |r: horizon_client::hud::Rect| {
                 [[r.u0, r.v1], [r.u1, r.v1], [r.u1, r.v0], [r.u0, r.v0]]
             };
@@ -418,7 +342,6 @@ impl Game<'_> {
                     f + right * hw + up * hh,
                     f - right * hw + up * hh,
                 ],
-                out_dir,
                 full(front),
                 1.0,
             );
@@ -430,7 +353,6 @@ impl Game<'_> {
                     b - right * hw + up * hh,
                     b + right * hw + up * hh,
                 ],
-                -out_dir,
                 full(back),
                 0.8,
             );
@@ -449,7 +371,6 @@ impl Game<'_> {
                     f + t - right * hw,
                     f + t + right * hw,
                 ],
-                up,
                 strip,
                 1.0,
             );
@@ -460,7 +381,6 @@ impl Game<'_> {
                     b + bt - right * hw,
                     b + bt + right * hw,
                 ],
-                -up,
                 strip,
                 0.5,
             );
@@ -471,7 +391,6 @@ impl Game<'_> {
                     f - right * hw + up * hh,
                     b - right * hw + up * hh,
                 ],
-                -right,
                 strip,
                 0.6,
             );
@@ -482,59 +401,10 @@ impl Game<'_> {
                     b + right * hw + up * hh,
                     f + right * hw + up * hh,
                 ],
-                right,
                 strip,
                 0.6,
             );
             self.cull_entity_vertices(out, entity_start);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// `HangingEntityItem.useOn` returns SUCCESS (the hand swings) when a
-    /// painting is created on a wall. Floor, ceiling, or a failed create is
-    /// CONSUME: no swing.
-    fn painting_use_on_swings(face: [i32; 3], created: bool) -> bool {
-        painting_facing(face).is_some() && created
-    }
-
-    #[test]
-    fn placing_a_painting_on_a_wall_swings() {
-        assert!(painting_use_on_swings([0, 0, 1], true));
-        assert!(painting_use_on_swings([-1, 0, 0], true));
-        assert!(painting_use_on_swings([0, 0, -1], true));
-        assert!(painting_use_on_swings([1, 0, 0], true));
-        assert!(!painting_use_on_swings([0, 1, 0], true));
-        assert!(!painting_use_on_swings([0, -1, 0], true));
-        assert!(!painting_use_on_swings([0, 0, 1], false));
-    }
-}
-
-#[cfg(test)]
-mod face_tests {
-    use super::faces_camera;
-    use glam::DVec3;
-
-    /// A quad at z = 2 facing -z (towards a camera at the origin) shows; seen from behind
-    /// (the camera on the other side, the quad now at z = -2) it does not.
-    #[test]
-    fn a_quad_shows_only_to_the_side_it_faces() {
-        let at = |z: f64| {
-            [
-                DVec3::new(-1.0, -1.0, z),
-                DVec3::new(1.0, -1.0, z),
-                DVec3::new(1.0, 1.0, z),
-                DVec3::new(-1.0, 1.0, z),
-            ]
-        };
-        let normal = DVec3::new(0.0, 0.0, -1.0);
-        assert!(faces_camera(&at(2.0), normal));
-        assert!(!faces_camera(&at(-2.0), normal));
-        // Edge on: nothing to draw.
-        assert!(!faces_camera(&at(0.0), normal));
     }
 }

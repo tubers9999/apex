@@ -15,26 +15,20 @@ impl Game<'_> {
             return self.dialog_has_text_field();
         }
         if let Some(title) = self.title.as_mut() {
-            // A caret field, an append-only one (`focused_field`), or a game
-            // rule's box (`has_caret_field` asks the rules screen itself, and
-            // `title_edit` types into it).
-            return title.has_caret_field() || title.focused_field().is_some();
+            return title.focused_field().is_some();
         }
         if self.sign_edit.is_some() || matches!(self.book, Some(BookScreen::Edit { .. })) {
             return true;
         }
         match self.screen {
-            Screen::Chat | Screen::CommandBlock | Screen::Social => true,
+            Screen::Chat | Screen::CommandBlock => true,
+            Screen::BlockEditor => self.block_editor_typing(),
             Screen::DebugOptions => self
                 .debug_options
                 .as_ref()
                 .is_some_and(|s| s.search_focused()),
-            // The language list's search, the settings search and the pack
-            // screen's search (OptionsUi::typing).
-            Screen::Options => self.ui.options.typing(),
             Screen::WorldOptions => self.world_options_typing(),
             Screen::Creative => self.creative_screen.tab().search,
-            Screen::BlockEditor => self.block_editor.as_ref().is_some_and(|s| s.text_focused()),
             Screen::Inventory => {
                 self.mod_browser_typing() || self.recipe_search_focused() || self.station_typing()
             }
@@ -44,11 +38,17 @@ impl Game<'_> {
 
     /// Allow the input method only while a text box has focus.
     pub(super) fn sync_ime(&mut self) {
+        // Android's focused Rust/JNI editor owns showing/hiding the keyboard.
+        // NativeActivity's separate winit IME calls must not steal that focus.
+        #[cfg(target_os = "android")]
+        let want = crate::platform::active();
+        #[cfg(not(target_os = "android"))]
         let want = self.text_field_focused();
         if want != self.ime_allowed
-            && let Some(window) = &self.window
+            && let Some(_window) = &self.window
         {
-            window.set_ime_allowed(want);
+            #[cfg(not(target_os = "android"))]
+            _window.set_ime_allowed(want);
             self.ime_allowed = want;
             // The field lost the focus (or a new one took it): the composition
             // and the candidate window's place belong to the old one.
@@ -124,12 +124,10 @@ impl Game<'_> {
             match self.screen {
                 Screen::Chat => self.chat_type(&text),
                 Screen::CommandBlock => self.command_block_type(&text),
-                Screen::Social => self.social_type(&text),
+                Screen::BlockEditor => self.block_editor_type(&text),
                 Screen::DebugOptions => self.debug_options_type(&text),
-                Screen::Options => self.ui.options.type_text(&self.gui.atlas, &text),
                 Screen::WorldOptions => self.world_options_text(Some(&text)),
                 Screen::Creative => self.creative_search_edit(Some(&text)),
-                Screen::BlockEditor => self.block_editor_type(&text),
                 Screen::Inventory if self.mod_browser_typing() => {
                     self.mod_browser_text(Some(&text), false)
                 }

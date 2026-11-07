@@ -1,6 +1,5 @@
 //! Read-only block and tag queries for native server hooks.
-use super::{Dim, Game};
-use horizon_client::mod_api::NativeLifecycleContext;
+use super::{Dim, Game, native_lifecycle::NativeLifecycleContext};
 use horizon_client::{
     items::{ItemStack, Items},
     world::World,

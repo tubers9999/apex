@@ -620,7 +620,6 @@ impl Oit {
         depth: &wgpu::TextureView,
         draw: &dyn Fn(&mut wgpu::RenderPass<'_>, Stage),
         extras: &Extras<'_>,
-        mut timing: Option<&mut super::pack_timing::PassTiming>,
     ) {
         let Some(t) = &self.targets else { return };
         let attachment = |view, load| {
@@ -646,7 +645,7 @@ impl Oit {
         let water_mask = extras.water_mask.zip(t.terrain_depth.as_ref());
         let cloud_depth = extras.clouds.zip(t.cloud_depth.as_ref());
         if let Some((mask, _)) = water_mask {
-            self.execute_water_mask(encoder, t, color, depth, mask, timing.as_deref_mut());
+            self.execute_water_mask(encoder, t, color, depth, mask);
         }
         let terrain_depth = water_mask.map_or(depth, |(_, d)| &d.view);
         let [c0, c1] = &t.views.coefficients;
@@ -681,7 +680,6 @@ impl Oit {
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some(label),
-                    timestamp_writes: timing.as_deref_mut().and_then(|t| t.writes(label)),
                     color_attachments: &first,
                     depth_stencil_attachment: read_only(terrain_depth),
                     ..Default::default()
@@ -694,7 +692,6 @@ impl Oit {
                 // the terrain's: the masks only hide water.
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some(label),
-                    timestamp_writes: timing.as_deref_mut().and_then(|t| t.writes("OIT features")),
                     color_attachments: &[attachment(
                         match stage {
                             Stage::DepthBounds => &t.views.bounds,
@@ -713,7 +710,7 @@ impl Oit {
                 features(&mut pass, stage);
             }
             if stage == Stage::DepthBounds {
-                self.execute_depth_bounds_cull(encoder, t, depth, timing.as_deref_mut());
+                self.execute_depth_bounds_cull(encoder, t, depth);
             }
             if let Some((clouds, cloud_depth)) = cloud_depth {
                 self.render_clouds(
@@ -723,18 +720,16 @@ impl Oit {
                     depth,
                     (label, group, &then),
                     (clouds, cloud_depth),
-                    timing.as_deref_mut(),
                 );
             }
             if stage == Stage::DepthBounds
                 && let Some((mask, _)) = water_mask
             {
-                self.execute_water_mask(encoder, t, color, depth, mask, timing.as_deref_mut());
+                self.execute_water_mask(encoder, t, color, depth, mask);
             }
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("OIT composite"),
-            timestamp_writes: timing.and_then(|t| t.writes("OIT composite")),
             color_attachments: &[attachment(color, wgpu::LoadOp::Load)],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: depth,
@@ -754,7 +749,6 @@ impl Oit {
     /// `CloudRenderer.renderOit` for one stage. The bounds stage first copies
     /// the world's depth (after the cull) and draws into it, so the later
     /// stages, which only read it, keep each pixel's nearest cloud face.
-    #[allow(clippy::too_many_arguments)]
     fn render_clouds(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -770,7 +764,6 @@ impl Oit {
             &dyn Fn(&mut wgpu::RenderPass<'_>, &wgpu::RenderPipeline),
             &Depth,
         ),
-        timing: Option<&mut super::pack_timing::PassTiming>,
     ) {
         if stage == Stage::DepthBounds {
             encoder.copy_texture_to_texture(
@@ -781,7 +774,6 @@ impl Oit {
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some(label),
-            timestamp_writes: timing.and_then(|t| t.writes("OIT clouds")),
             color_attachments: targets,
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &cloud_depth.view,
@@ -806,7 +798,6 @@ impl Oit {
         color: &wgpu::TextureView,
         depth: &wgpu::TextureView,
         mask: &dyn Fn(&mut wgpu::RenderPass<'_>),
-        timing: Option<&mut super::pack_timing::PassTiming>,
     ) {
         let Some(terrain) = &t.terrain_depth else {
             return;
@@ -819,7 +810,6 @@ impl Oit {
         // The mask pipeline writes depth only but has a colour target.
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("OIT water mask"),
-            timestamp_writes: timing.and_then(|t| t.writes("OIT water mask")),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: color,
                 resolve_target: None,
@@ -850,7 +840,6 @@ impl Oit {
         encoder: &mut wgpu::CommandEncoder,
         t: &Targets,
         depth: &wgpu::TextureView,
-        timing: Option<&mut super::pack_timing::PassTiming>,
     ) {
         encoder.copy_texture_to_texture(
             t.bounds.as_image_copy(),
@@ -863,7 +852,6 @@ impl Oit {
         );
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("OIT cull depth bounds"),
-            timestamp_writes: timing.and_then(|t| t.writes("OIT cull depth bounds")),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &t.views.culled,
                 resolve_target: None,

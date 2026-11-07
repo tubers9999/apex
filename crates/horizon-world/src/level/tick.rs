@@ -80,10 +80,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 Class::Coral => {
                     if !self.coral_scan_for_water(pos) {
                         if let Some(dead) = b.data(state).link {
-                            let next = b.default_of(dead);
-                            if self.level.allow_block_fade(pos, state, next) {
-                                self.set_block(pos, next, 2);
-                            }
+                            self.set_block(pos, b.default_of(dead), 2);
                         }
                     }
                 }
@@ -95,9 +92,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                             if class == Class::CoralWallFan {
                                 next = b.table.set_dir(next, p.facing, b.facing(state));
                             }
-                            if self.level.allow_block_fade(pos, state, next) {
-                                self.set_block(pos, next, 2);
-                            }
+                            self.set_block(pos, next, 2);
                         }
                     }
                 }
@@ -108,46 +103,9 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     if let Some((previous, count)) = self.level.recheck_container_openers(pos) {
                         self.block_event(pos, block, 1, count);
                         if previous != count && b.data(state).is(Class::TrappedChest) {
-                            self.trapped_chest_update_neighbors(pos, state);
+                            self.update_neighbors_at(pos, block);
+                            self.update_neighbors_at(below(pos), block);
                         }
-                        if count > 0 {
-                            self.schedule_tick(pos, block, 5);
-                        }
-                    }
-                }
-                Class::Barrel => {
-                    // BarrelBlock.tick → BarrelBlockEntity.recheckOpen →
-                    // ContainerOpenersCounter.recheckOpeners: the barrel
-                    // recounts its openers, and the count crossing zero opens
-                    // or closes it. Unlike a chest it broadcasts no block
-                    // event (BarrelBlockEntity$1.openerCountChanged is empty):
-                    // the `open` property, the barrel's own sound and the
-                    // container game events are its whole report.
-                    if let Some((previous, count)) = self.level.recheck_container_openers(pos) {
-                        if previous != count {
-                            let open = count > 0;
-                            let sound: Arc<str> = if open {
-                                "minecraft:block.barrel.open".into()
-                            } else {
-                                "minecraft:block.barrel.close".into()
-                            };
-                            // BarrelBlockEntity.playSound: volume 0.5, pitch
-                            // 0.9 to 1.0 from the level random.
-                            let pitch = 0.9 + self.random().next_float() * 0.1;
-                            self.sound(pos, &sound, 0.5, pitch);
-                            // BarrelBlockEntity.updateBlockState.
-                            self.set_block_and_update(pos, b.table.set_bool(state, p.open, open));
-                            self.game_event(
-                                pos,
-                                if open {
-                                    "minecraft:container_open"
-                                } else {
-                                    "minecraft:container_close"
-                                },
-                            );
-                        }
-                        // ContainerOpenersCounter.scheduleRecheck holds only
-                        // while someone has it open.
                         if count > 0 {
                             self.schedule_tick(pos, block, 5);
                         }
@@ -216,11 +174,12 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 // LecternBlock.tick: the page-turn pulse ends.
                 Class::Lectern => {
                     self.set_block_and_update(pos, b.table.set_bool(state, p.powered, false));
-                    self.lectern_update_below(pos, state);
+                    self.update_neighbors_at(below(pos), block);
                 }
                 Class::LightningRod => {
                     self.set_block_and_update(pos, b.table.set_bool(state, p.powered, false));
-                    self.lightning_rod_update_neighbors(pos, state);
+                    let facing = b.facing(state);
+                    self.update_neighbors_at(rel(pos, facing.opposite()), block);
                 }
                 Class::Liquid => {
                     if self.should_bubble_column_occupy(state) {
@@ -379,9 +338,6 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 }
                 Class::Leaves => {
                     if !b.table.bool(state, p.persistent) && b.table.int(state, p.distance) == 7 {
-                        if !self.level.allow_leaves_decay(pos) {
-                            continue;
-                        }
                         self.drop_resources(state, pos);
                         self.remove_block(pos, false);
                     }
@@ -434,9 +390,6 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 }
                 Class::SnowLayer => {
                     if self.level.block_light(pos) > 11 {
-                        if !self.level.allow_block_fade(pos, state, b.air()) {
-                            continue;
-                        }
                         self.drop_resources(state, pos);
                         self.remove_block(pos, false);
                         self.game_event(pos, "minecraft:block_destroy");
@@ -641,7 +594,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let mut state = state;
         if age != new_age {
             state = b.table.set_int(state, p.age, new_age);
-            self.set_block(pos, state, 260);
+            self.set_block(pos, state, 260 | super::flags::UPDATE_KNOWN_SHAPE);
         }
         if !infini {
             if !self.is_valid_fire_location(pos) {
@@ -690,9 +643,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                             && (!self.level.is_raining() || !self.fire_near_rain(test))
                         {
                             let spread_age = 15.min(age + self.rand_int(5) / 4);
-                            if self.level.allow_spread(Spread::Fire, pos, test)
-                                && self.level.allow_block_ignite(test, "spread")
-                            {
+                            if self.level.allow_spread(Spread::Fire, pos, test) {
                                 let next = self.fire_state_with_age(test, spread_age);
                                 self.set_block_and_update(test, next);
                             }
@@ -727,22 +678,16 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         if self.rand_int(chance) < odds {
             let old = self.state(pos);
             let allowed = self.level.allow_spread(Spread::Fire, fire, pos);
-            let mut burned = false;
             if self.rand_int(age + 10) < 5 && !self.level.is_raining_at(pos) {
                 let new_age = (age + self.rand_int(5) / 4).min(15);
-                if allowed
-                    && self.level.allow_block_burn(pos)
-                    && self.level.allow_block_ignite(pos, "spread")
-                {
+                if allowed {
                     let next = self.fire_state_with_age(pos, new_age);
                     self.set_block_and_update(pos, next);
-                    burned = true;
                 }
-            } else if allowed && self.level.allow_block_burn(pos) {
+            } else if allowed {
                 self.remove_block(pos, false);
-                burned = true;
             }
-            if burned && b.instance_of(old, Class::Tnt) {
+            if allowed && b.instance_of(old, Class::Tnt) {
                 self.prime_tnt(pos);
             }
         }
@@ -1005,20 +950,15 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         }
         if !near_water && !self.level.is_raining_at(above(pos)) {
             if moisture > 0 {
-                if self
-                    .level
-                    .allow_moisture_change(pos, moisture, moisture - 1)
-                {
-                    self.set_block(
-                        pos,
-                        b.table.set_int(state, b.props.moisture, moisture - 1),
-                        2,
-                    );
-                }
+                self.set_block(
+                    pos,
+                    b.table.set_int(state, b.props.moisture, moisture - 1),
+                    2,
+                );
             } else if !b.in_set(self.above_state(pos), &b.tags.maintains_farmland) {
                 self.turn_to_base_block(pos, state);
             }
-        } else if moisture < 7 && self.level.allow_moisture_change(pos, moisture, 7) {
+        } else if moisture < 7 {
             self.set_block(pos, b.table.set_int(state, b.props.moisture, 7), 2);
         }
     }
@@ -1487,11 +1427,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let top = info.top;
         let below_pos = below(top);
         if info.freezes_below {
-            let from = self.state(below_pos);
-            let to = b.default_of(b.named.ice);
-            if self.level.allow_block_form(below_pos, from, to) {
-                self.set_block_and_update(below_pos, to);
-            }
+            self.set_block_and_update(below_pos, b.default_of(b.named.ice));
         }
         if !self.level.is_raining() {
             return;
@@ -1502,16 +1438,10 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             if b.is_block(state, b.named.snow) {
                 let layers = b.table.int(state, p.layers);
                 if layers < max_height.min(8) {
-                    let to = b.table.set_int(state, p.layers, layers + 1);
-                    if self.level.allow_block_form(top, state, to) {
-                        self.set_block_and_update(top, to);
-                    }
+                    self.set_block_and_update(top, b.table.set_int(state, p.layers, layers + 1));
                 }
             } else {
-                let to = b.default_of(b.named.snow);
-                if self.level.allow_block_form(top, state, to) {
-                    self.set_block_and_update(top, to);
-                }
+                self.set_block_and_update(top, b.default_of(b.named.snow));
             }
         }
         if info.kind != PrecipitationKind::None {
@@ -1524,20 +1454,6 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             };
             if data.is(Class::Cauldron) {
                 if self.random().next_float() < chance {
-                    // Both place the cauldron's default state, level 1
-                    // (CauldronBlock.handlePrecipitation).
-                    let to = 1;
-                    let reason = if info.kind == PrecipitationKind::Rain {
-                        "rain"
-                    } else {
-                        "snow"
-                    };
-                    if !self
-                        .level
-                        .allow_cauldron_level_change(below_pos, 0, to, reason)
-                    {
-                        return;
-                    }
                     let next = if info.kind == PrecipitationKind::Rain {
                         b.named.water_cauldron
                     } else {
@@ -1552,18 +1468,6 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                     || (info.kind == PrecipitationKind::Snow
                         && b.is_block(below_state, b.named.powder_snow_cauldron));
                 if b.table.int(below_state, p.level) != 3 && matches {
-                    let level = b.table.int(below_state, p.level);
-                    let reason = if info.kind == PrecipitationKind::Rain {
-                        "rain"
-                    } else {
-                        "snow"
-                    };
-                    if !self
-                        .level
-                        .allow_cauldron_level_change(below_pos, level, level + 1, reason)
-                    {
-                        return;
-                    }
                     self.set_block_and_update(below_pos, b.table.cycle(below_state, p.level));
                     self.game_event(below_pos, "minecraft:block_change");
                 }

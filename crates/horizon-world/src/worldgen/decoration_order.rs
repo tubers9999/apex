@@ -29,14 +29,11 @@
 //! overlap), so a chunk may be decorated as soon as no lower-ranked chunk
 //! within two of it is still waiting: [`DecorationOrder::blocked`]. Chunks
 //! further apart still decorate in parallel.
-use horizon_core::fast_hash::FxHashMap;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Default)]
 pub struct DecorationOrder {
-    /// Looked up 24 times per chunk `blocked` is asked about, each time the
-    /// streamer schedules decoration: a fast hasher, not SipHash.
-    rank: FxHashMap<(i32, i32), u64>,
+    rank: HashMap<(i32, i32), u64>,
     next: u64,
 }
 
@@ -241,7 +238,6 @@ pub fn forced_order(x0: i32, z0: i32, x1: i32, z1: i32) -> Vec<(i32, i32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     /// Seed 8675309's geodes in chunks (-26, -1) and (14, -20) run into the
     /// trial chambers of (-26, 0) and (14, -19); vanilla decorates the lower

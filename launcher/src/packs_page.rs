@@ -10,13 +10,13 @@ use std::sync::Arc;
 #[derive(Default)]
 pub(super) struct Packs {
     home: Option<PathBuf>,
-    pub(super) resource: Vec<(Pack, Option<Arc<Image>>)>,
-    pub(super) shader: Vec<Pack>,
+    resource: Vec<(Pack, Option<Arc<Image>>)>,
+    shader: Vec<Pack>,
     fresh: bool,
     /// The pack waiting for its removal to be confirmed: its kind and file.
-    pub(super) confirm_remove: Option<(PackKind, String)>,
+    confirm_remove: Option<(PackKind, String)>,
     /// What the last action did, or why it failed.
-    pub(super) note: Option<Result<String, String>>,
+    note: Option<Result<String, String>>,
 }
 
 impl Packs {
@@ -26,7 +26,7 @@ impl Packs {
 }
 
 impl Launcher {
-    pub(super) fn load_packs_list(&mut self, home: PathBuf) {
+    fn load_packs_list(&mut self, home: PathBuf) {
         if self.game_packs.home.as_ref() != Some(&home) {
             self.game_packs = Packs {
                 home: Some(home.clone()),
@@ -51,10 +51,7 @@ impl Launcher {
         self.game_packs.fresh = true;
     }
 
-    pub(super) fn pack_action(
-        &mut self,
-        act: impl FnOnce(&std::path::Path) -> Result<String, String>,
-    ) {
+    fn pack_action(&mut self, act: impl FnOnce(&std::path::Path) -> Result<String, String>) {
         let Some(home) = self.game_packs.home.clone() else {
             return;
         };
@@ -64,7 +61,7 @@ impl Launcher {
     }
 
     /// Copies dropped or picked files into the instance's pack folders.
-    pub(super) fn add_packs(&mut self, files: Vec<PathBuf>) {
+    fn add_packs(&mut self, files: Vec<PathBuf>) {
         self.pack_action(|home| {
             let mut added = Vec::new();
             for file in &files {
@@ -77,7 +74,7 @@ impl Launcher {
         });
     }
 
-    pub(super) fn choose_packs(&mut self, cx: &mut Context<Self>) {
+    fn choose_packs(&mut self, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -112,9 +109,9 @@ impl Launcher {
         let actions = div()
             .flex()
             .items_center()
-            .gap(px(8.))
+            .gap(px(6.))
             .child(
-                tab_action("packs-add", "Add pack…", &t).on_click(cx.listener(
+                button("packs-add", "Add pack…", Kind::Ghost, &t).on_click(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
                         this.choose_packs(cx);
                         cx.notify();
@@ -122,7 +119,7 @@ impl Launcher {
                 )),
             )
             .child(
-                tab_action("packs-folder", "Open folder", &t).on_click(move |_, _, cx| {
+                button("packs-folder", "Open folder", Kind::Ghost, &t).on_click(move |_, _, cx| {
                     let dir = home.join(PackKind::Resource.folder());
                     let _ = std::fs::create_dir_all(&dir);
                     cx.open_with_system(&dir);
@@ -146,52 +143,36 @@ impl Launcher {
                 cx.notify();
             }));
         match &self.game_packs.note {
-            Some(Ok(m)) => section = section.child(quiet_note(m.clone(), &t)),
+            Some(Ok(m)) => {
+                section = section.child(text(theme::CAPTION).text_color(t.muted).child(m.clone()))
+            }
             Some(Err(e)) => section = section.child(notice(e.clone(), &t)),
             None => {}
         }
         if self.client.is_some() {
-            section = section.child(quiet_note(
-                tr("The game is running: change packs in its own menus, or here once it is closed."),
-                &t,
-            ));
+            section = section.child(text(theme::CAPTION).text_color(t.muted).child(tr(
+                "The game is running: change packs in its own menus, or here once it is closed.",
+            )));
         }
         let resource = self.game_packs.resource.clone();
-        // Each group's title and its empty line share a plate, like the rows below them.
-        let mut head = plate(&t)
-            .flex()
-            .flex_col()
-            .gap(px(4.))
-            .px(px(12.))
-            .py(px(8.))
-            .mt(px(4.))
-            .child(caps(tr("Resource packs")).text_color(t.muted));
+        section = section.child(caps(tr("Resource packs")).text_color(t.muted).mt(px(4.)));
         if resource.is_empty() {
-            head = head.child(text(theme::CAPTION).text_color(t.muted).child(tr(
+            section = section.child(text(theme::CAPTION).text_color(t.muted).child(tr(
                 "None yet: drop a .zip here, or find some on the Mods page.",
             )));
         }
-        section = section.child(head);
         for (i, (pack, icon)) in resource.into_iter().enumerate() {
             section = section.child(self.pack_row(i, pack, icon, cx));
         }
         let shader = self.game_packs.shader.clone();
-        let mut head = plate(&t)
-            .flex()
-            .flex_col()
-            .gap(px(4.))
-            .px(px(12.))
-            .py(px(8.))
-            .mt(px(8.))
-            .child(caps(tr("Shader packs")).text_color(t.muted));
+        section = section.child(caps(tr("Shader packs")).text_color(t.muted).mt(px(8.)));
         if shader.is_empty() {
-            head = head.child(
+            section = section.child(
                 text(theme::CAPTION)
                     .text_color(t.muted)
                     .child(tr("None yet: drop a .hshader or a shader pack .zip here.")),
             );
         }
-        section = section.child(head);
         for (i, pack) in shader.into_iter().enumerate() {
             section = section.child(self.pack_row(i, pack, None, cx));
         }

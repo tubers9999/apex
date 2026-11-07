@@ -424,29 +424,14 @@ impl super::Device {
             key.shader_model.to_str()
         );
 
-        // Horizon: a shader compiled in an earlier run comes from the disk.
-        let disk_key = super::disk_cache::key(
-            self.compiler_container.cache_name(),
-            key.shader_model.to_str(),
-            naga::back::hlsl::shader_stage_to_hlsl_str(naga_stage),
-            &key.entry_point,
+        let compiled_shader = self.compiler_container.compile(
+            self,
             &key.source,
-        );
-        let compiled_shader = match super::disk_cache::get(disk_key) {
-            Some(bytes) => super::CompiledShader::Precompiled(bytes),
-            None => {
-                let compiled = self.compiler_container.compile(
-                    self,
-                    &key.source,
-                    source_name,
-                    &key.entry_point,
-                    stage_bit,
-                    &full_stage,
-                )?;
-                super::disk_cache::put(disk_key, compiled.bytes());
-                compiled
-            }
-        };
+            source_name,
+            &key.entry_point,
+            stage_bit,
+            &full_stage,
+        )?;
 
         {
             let mut shader_cache = self.shader_cache.lock();

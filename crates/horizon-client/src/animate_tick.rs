@@ -917,11 +917,8 @@ fn block_animate_tick(
             }
             let r = engine.random();
             if spawn_particles && next_int(r, 5) == 0 {
-                // Vanilla's `for (int i = 0; i < random.nextInt(1) + 1; i++)`
-                // asks the bound again on every pass, so the check after the
-                // body is a second draw.
-                let mut i = 0;
-                while i < next_int(engine.random(), 1) + 1 {
+                let count = next_int(r, 1) + 1;
+                for _ in 0..count {
                     let r = engine.random();
                     let v = [
                         f64::from(r.next_float() / 2.0),
@@ -929,7 +926,6 @@ fn block_animate_tick(
                         f64::from(r.next_float() / 2.0),
                     ];
                     add(engine, T::Lava, [fx + 0.5, fy + 0.5, fz + 0.5], v);
-                    i += 1;
                 }
             }
         }
@@ -1899,17 +1895,9 @@ pub fn campfire_particles<'a>(
         };
         let r = engine.random();
         if r.next_float() < 0.11 {
-            // `for (int i = 0; i < random.nextInt(2) + 2; i++)`: the iteration
-            // bound is drawn again on every pass, so the loop keeps asking the
-            // random whether to make one more puff.
-            let mut made = 0;
-            loop {
-                let count = next_int(engine.random(), 2) + 2;
-                if made >= count {
-                    break;
-                }
+            let count = next_int(r, 2) + 2;
+            for _ in 0..count {
                 make_campfire_smoke(engine, pos, signal, false);
-                made += 1;
             }
         }
         // The smoke over each cooking item, at the slot's corner of the fire.

@@ -107,7 +107,10 @@ pub fn style_from_json(v: &Value) -> Style {
     let mut s = Style::default();
     let Some(o) = v.as_object() else { return s };
     if let Some(c) = o.get("color").and_then(Value::as_str) {
-        s.color = text::named_color(c).or_else(|| component::hex_color(c));
+        s.color = text::named_color(c).or_else(|| {
+            c.strip_prefix('#')
+                .and_then(|h| u32::from_str_radix(h, 16).ok())
+        });
     }
     s.shadow_color = o.get("shadow_color").and_then(component::shadow_color);
     let flag = |k: &str| o.get(k).and_then(Value::as_bool);
@@ -999,6 +1002,13 @@ impl Scoreboard {
         self.team_order.remove(name);
         self.reorder();
     }
+    /// Player.getScoreboardName uses the profile name; other entities use UUIDs.
+    pub fn entity_team(&self, profile_name: Option<&str>, uuid: Option<[i32; 4]>) -> Option<&Team> {
+        if let Some(name) = profile_name {
+            return self.players_team(name);
+        }
+        self.players_team(&crate::uuid::uuid_text(uuid?))
+    }
     pub fn players_team(&self, player: &str) -> Option<&Team> {
         self.team(self.team_of.get(player)?)
     }
@@ -1338,9 +1348,9 @@ fn decompose(c: &Comp) -> (serde_json::Map<String, Value>, Vec<Comp>) {
                     }
                     "color" => {
                         let color = v.as_str().map(|s| match s.strip_prefix('#') {
-                            Some(_) => match component::hex_color(s) {
-                                Some(rgb) => format!("#{rgb:06X}"),
-                                None => s.to_owned(),
+                            Some(hex) => match u32::from_str_radix(hex, 16) {
+                                Ok(rgb) => format!("#{rgb:06X}"),
+                                Err(_) => s.to_owned(),
                             },
                             None => s.to_owned(),
                         });
@@ -1558,6 +1568,29 @@ mod tests {
         assert_eq!(
             NumberFormat::from_tag(&t),
             Some(NumberFormat::Styled(serde_json::json!({"color": "gold"})))
+        );
+    }
+}
+
+#[cfg(test)]
+mod player_collision_tests {
+    use super::*;
+    #[test]
+    fn player_profile_team_prevents_pushes_even_when_uuid_has_another_team() {
+        let mut board = Scoreboard::default();
+        board.add_team("no_collision").collision_rule = CollisionRule::Never;
+        board.add_to_team("HiddenNPC", "no_collision");
+        board.add_team("uuid_team");
+        board.add_to_team(&crate::uuid::uuid_text([0, 0, 0, 7]), "uuid_team");
+        let npc = board.entity_team(Some("HiddenNPC"), Some([0, 0, 0, 7]));
+        assert!(!pushable_by(npc, None, true));
+        let mob = board.entity_team(None, Some([0, 0, 0, 7]));
+        assert!(pushable_by(mob, None, true));
+        // A player without a named team must not fall back to a UUID team.
+        assert!(
+            board
+                .entity_team(Some("OtherPlayer"), Some([0, 0, 0, 7]))
+                .is_none()
         );
     }
 }

@@ -70,7 +70,7 @@ fn prism_and_multimc_instances() {
         ]
     );
     assert_eq!(in_folder(&fabric, None)[0].name, "My Fabric");
-    // The loader comes along at the same version.
+    // Fabric comes along at the same version; Forge isn't installed by Horizon yet.
     assert_eq!(
         loader(&found[0]),
         Some(crate::loaders::Loader {
@@ -78,10 +78,7 @@ fn prism_and_multimc_instances() {
             version: "0.16.9".into()
         })
     );
-    assert_eq!(
-        loader(&found[1]).map(|l| (l.kind, l.version)),
-        Some((crate::loaders::Kind::Forge, "14.23.5.2860".into()))
-    );
+    assert_eq!(loader(&found[1]), None);
     assert_eq!(in_folder(&root.join("instances"), Some("MultiMC")).len(), 2);
     let named = root.join("MultiMC/instances/old");
     fs::create_dir_all(named.parent().unwrap()).unwrap();

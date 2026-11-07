@@ -105,7 +105,6 @@ mod tests {
             name: name.into(),
             body: String::new(),
             date: date.into(),
-            time: String::new(),
             asset: Some(("https://example/horizon.zip".into(), 1)),
             prerelease: true,
             nightly: None,

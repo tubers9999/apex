@@ -596,9 +596,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     }
     fn tripwire_hook_notify(&mut self, block: BlockId, pos: BlockPos, direction: Direction) {
         let front = direction.opposite();
-        let orientation = self.initial_orientation(Some(front), Some(Direction::Up));
-        self.update_neighbors_at_oriented(pos, block, orientation);
-        self.update_neighbors_at_oriented(rel(pos, front), block, orientation);
+        self.update_neighbors_at(pos, block);
+        self.update_neighbors_at(rel(pos, front), block);
     }
     fn tripwire_emit(
         &mut self,

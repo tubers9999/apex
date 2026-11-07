@@ -4,8 +4,9 @@
 //! (`horizon_mods::index::check_file`: size, SHA-256, the author's signature, the file's own
 //! manifest), and files the index says were taken down are refused and turned off.
 use super::{
+    FileRef, GAME, Kind, Project, Query, Source, SourceId, Version,
     details::{Details, Link},
-    download, installed, java, FileRef, Kind, Project, Query, Source, SourceId, Version, GAME,
+    download, installed, java,
 };
 use horizon_mods::index::{self, Index, Trust};
 use std::collections::HashMap;
@@ -70,6 +71,7 @@ pub fn is_native_mod(id: &str) -> bool {
 
 /// The index: the one fetched in the last ten minutes, else fetched again (and kept in the game
 /// folder), else the copy kept last time.
+#[allow(clippy::collapsible_if)] // Shared with the edition-2021 desktop launcher.
 pub fn index() -> Result<Arc<Index>, String> {
     if let Some((at, index)) = LOADED.lock().unwrap().as_ref() {
         if at.elapsed() < FRESH {
@@ -296,7 +298,15 @@ fn project_of(p: &index::Project) -> Option<Project> {
         license: p.license.clone(),
         kind: kind_of(&p.kind)?,
         game_versions,
-        loaders: vec![LOADER.into()],
+        loaders: {
+            let mut loaders = vec![LOADER.into()];
+            if cfg!(target_os = "android") && p.kind == index::Kind::NativeMod {
+                // Keep source-only mods visible, without implying Android can
+                // install a source bundle into its already-built game library.
+                loaders.push("hnmod".into());
+            }
+            loaders
+        },
     })
 }
 
@@ -327,7 +337,6 @@ fn version_of(
         blocked: index
             .revoked(&p.id, &v.file.sha256)
             .map(|r| format!("taken down: {}", r.reason))
-            .or_else(|| needs_port(v).then(|| NEEDS_PORT.to_string()))
             .or_else(|| needs_newer(v, level).then(|| NEEDS_NEWER.to_string())),
     }
 }
@@ -351,51 +360,19 @@ fn matches(p: &index::Project, text: &str) -> bool {
         .all(|word| hay.contains(&word.to_lowercase()))
 }
 
-/// The sorts the registry can honor: it has downloads and each version's publish day, but no
-/// follows and no relevance score (its search is a word match).
-pub const SORTS: [super::details::Sort; 3] = [
-    super::details::Sort::Downloads,
-    super::details::Sort::Newest,
-    super::details::Sort::Updated,
-];
-
 /// The projects of the query's kind whose words match, for this game unless `everything`: the
-/// most downloaded first, or the newest (first published) or most recently updated (latest
-/// version) when the query asks, ties by downloads.
+/// most downloaded first.
 fn search(index: &Index, query: &Query) -> Vec<Project> {
-    use super::details::Sort;
-    let mut found: Vec<&index::Project> = index
+    let mut found: Vec<Project> = index
         .projects
         .iter()
         .filter(|p| kind_of(&p.kind) == Some(query.kind) && matches(p, &query.text))
         .filter(|p| query.everything || p.versions.iter().any(|v| v.game == GAME))
-        // A WebAssembly mod stays in the index for the modpacks that need it, not in the browser.
-        .filter(|p| !p.versions.iter().filter(|v| v.game == GAME).all(needs_port))
+        .filter_map(project_of)
         .collect();
-    let day = |p: &index::Project, newest: bool| {
-        let days = p.versions.iter().map(|v| v.published.as_str());
-        if newest { days.min() } else { days.max() }
-            .unwrap_or("")
-            .to_string()
-    };
-    match query.filters.sort {
-        Some(Sort::Newest) => found.sort_by_cached_key(|p| {
-            (
-                std::cmp::Reverse(day(p, true)),
-                std::cmp::Reverse(p.downloads),
-            )
-        }),
-        Some(Sort::Updated) => found.sort_by_cached_key(|p| {
-            (
-                std::cmp::Reverse(day(p, false)),
-                std::cmp::Reverse(p.downloads),
-            )
-        }),
-        _ => found.sort_by_key(|p| std::cmp::Reverse(p.downloads)),
-    }
+    found.sort_by_key(|p| std::cmp::Reverse(p.downloads));
     found
         .into_iter()
-        .filter_map(project_of)
         .skip(query.offset)
         .take(query.limit)
         .collect()
@@ -587,9 +564,6 @@ fn install_from(
         .project(&project.id)
         .ok_or_else(|| format!("{} isn't in Horizon's registry.", project.title))?;
     let v = newest(index, p, level)?;
-    if needs_port(v) {
-        return Err(format!("{} {NEEDS_PORT}.", p.name));
-    }
     install_version(index, local, p, v, home, progress).map(|e| vec![e])
 }
 
@@ -618,17 +592,6 @@ fn newest<'a>(
 }
 
 const NEEDS_NEWER: &str = "needs a newer Horizon than the game you play";
-const NEEDS_PORT: &str = "needs a native port: Horizon doesn't run WebAssembly mods any more";
-
-/// Whether version `v` is a WebAssembly mod with code: a `.hmod` that may do more than add
-/// content. The registry keeps it for the modpacks that need it; a modpack installs it with its
-/// code left out (the game doesn't run it), and the browser neither lists nor installs it.
-pub fn needs_port(v: &index::Version) -> bool {
-    v.file.name.ends_with(".hmod")
-        && v.capabilities
-            .iter()
-            .any(|c| *c != horizon_mods::Capability::Registries)
-}
 
 /// Whether version `v` calls mod API functions a game serving `level` doesn't have.
 fn needs_newer(v: &index::Version, level: Option<u32>) -> bool {
@@ -651,7 +614,7 @@ fn install_version(
     }
     let native = p.kind == index::Kind::NativeMod;
     let relative = match native {
-        true => format!("{}/{}.hnmod", crate::native_mods::INSTALLED, p.id),
+        true => format!("{}/{}.hnmod", native_mods_dir(), p.id),
         false => relative(project.kind, &p.id, &v.file.name)?,
     };
     let mut list = installed::Installed::load(home);
@@ -723,16 +686,24 @@ fn install_version(
         page: project.page.clone(),
         dependency: false,
         verdict: Some(trust_label(trust).into()),
-        skipped: match needs_port(v) {
-            true => vec![format!("its code ({NEEDS_PORT})")],
-            false => Vec::new(),
-        },
+        skipped: Vec::new(),
         namespaces: Vec::new(),
     };
     list.entries.retain(|e| !ours(e));
     list.entries.push(entry.clone());
     list.save(home)?;
     Ok(entry)
+}
+
+fn native_mods_dir() -> &'static str {
+    #[cfg(target_os = "android")]
+    {
+        "horizon-native-mods"
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        crate::native_mods::INSTALLED
+    }
 }
 
 /// Whether an update to a native version keeps the old file `old`: a mod that turned native
@@ -745,7 +716,7 @@ fn stays(native: bool, old: &str) -> bool {
 /// The mod id of an installed mod (`horizon-mods/<id>`, `horizon-mods/<id>.hmod` or
 /// `horizon-native-mods/<id>.hnmod`).
 pub fn mod_id(entry: &installed::Entry) -> Option<&str> {
-    if let Some(rest) = entry.file.strip_prefix(crate::native_mods::INSTALLED) {
+    if let Some(rest) = entry.file.strip_prefix(native_mods_dir()) {
         return rest.strip_prefix('/')?.strip_suffix(".hnmod");
     }
     let rest = entry.file.strip_prefix(java::MODS_DIR)?.strip_prefix('/')?;
@@ -810,6 +781,8 @@ pub fn before_play(home: &Path) {
     });
 }
 
+#[path = "horizon/pack.rs"]
 pub mod pack;
 #[cfg(test)]
+#[path = "horizon/tests.rs"]
 mod tests;

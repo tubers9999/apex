@@ -15,7 +15,6 @@ use std::{
     sync::mpsc,
 };
 
-mod buffet;
 mod confirm_experiments;
 mod create_world;
 mod experiments;
@@ -24,7 +23,6 @@ mod onboarding;
 #[cfg(test)]
 mod tests;
 pub mod world_management;
-pub use buffet::State as BuffetEditor;
 pub use create_world::{DIFFICULTIES, WorldOptions};
 pub use flat::{FlatLayer, FlatSettings, State as FlatEditor};
 pub use onboarding::Onboarding;
@@ -258,9 +256,6 @@ pub enum Alert {
     Incompatible,
     /// `selectWorld.recreate.error.title`.
     Recreate,
-    /// `symlink_warning.title.world`
-    /// (`NoticeWithLinkScreen.createWorldSymlinkWarningScreen`).
-    Symlink,
 }
 #[derive(Clone, Debug)]
 pub enum Mode {
@@ -346,16 +341,6 @@ pub enum Mode {
         focus: u8,
         options: WorldOptions,
         flat: flat::State,
-    },
-    /// CreateBuffetWorldScreen over Create New World: the single-biome
-    /// preset's biome list, over the fields that screen keeps.
-    CreateBuffet {
-        name: String,
-        seed: String,
-        creative: bool,
-        focus: u8,
-        options: WorldOptions,
-        buffet: buffet::State,
     },
     /// AccessibilityOnboardingScreen: the first screen of a first launch.
     Onboarding(Onboarding),
@@ -444,6 +429,8 @@ pub struct Title {
     /// EditWorldScreen's and WorldOpenFlows' `SystemToast` and its slide.
     toast: Option<(crate::toasts::Slide, WorldToast)>,
     icons: RefCell<std::collections::HashMap<PathBuf, (std::time::SystemTime, Option<Vec<u8>>)>>,
+    uploaded_icon_slots:
+        RefCell<std::collections::HashMap<usize, (usize, PathBuf, std::time::SystemTime)>>,
     splash: Option<String>,
     /// `SplashManager.getSplash` rolled the player's own name instead of a list entry.
     splash_you: bool,
@@ -473,51 +460,9 @@ pub(crate) struct Button {
     enabled: bool,
     id: u8,
     icon: Option<(&'static str, f32)>,
-    /// `SpriteIconButton.TextAndIcon`: the icon at the right end, the text
-    /// centred in the room left of it.
+    /// `SpriteIconButton.TextAndIcon`: the icon at the right end, the text centred.
     trailing: Option<(&'static str, f32)>,
 }
-impl Button {
-    /// `AbstractButton.extractDefaultLabel`: the label centred with a 2 px
-    /// margin, and slid inside the button when it does not fit
-    /// (`AbstractWidget.extractScrollingStringOverContents`), instead of being
-    /// drawn past it over the buttons beside it (so_so's 590 px World Type
-    /// label on Create World, hi_in's Join Server in the Multiplayer footer).
-    /// A button with a `trailing` icon is `SpriteIconButton.TextAndIcon`, whose
-    /// label keeps clear of the icon: see [`Button::draw_label_at`].
-    fn draw_label(&self, batch: &mut HudBatch, atlas: &HudAtlas, color: u32) {
-        self.draw_label_at(batch, atlas, color, crate::hud_overlays::now_ms());
-    }
-
-    /// [`Button::draw_label`] at `now_ms`. `SpriteIconButton.TextAndIcon`
-    /// (`extractContents`) hands the label to `acceptScrolling` with `left`
-    /// at the button's x plus 2, `right` at its x plus width minus the
-    /// sprite's width minus 4, and `centerX` at its x plus half its width: the
-    /// label slides inside that box when wider, and one that fits is moved
-    /// left until it ends where the icon's room begins. A button without an
-    /// icon has `right` 2 short of its edge, where `centerX` is the middle of
-    /// the box and nothing moves.
-    fn draw_label_at(&self, batch: &mut HudBatch, atlas: &HudAtlas, color: u32, now_ms: i64) {
-        let right = match self.trailing {
-            Some((_, size)) => self.x + self.w - size - 4.0,
-            None => self.x + self.w - 2.0,
-        };
-        crate::ui::scrolling_text_around_at(
-            batch,
-            atlas,
-            &Text::literal(&self.label),
-            self.x + (self.w / 2.0).floor(),
-            self.x + 2.0,
-            right,
-            self.y,
-            self.y + 20.0,
-            self.y + 6.0,
-            now_ms,
-            color,
-        );
-    }
-}
-
 /// Java String.hashCode for text seeds (WorldOptions.parseSeed).
 pub fn parse_seed(text: &str) -> Option<i64> {
     let t = text.trim();
@@ -702,35 +647,6 @@ fn rolls_user_splash(text: &str, seed: u64, date: (u32, u32)) -> bool {
         .is_ok_and(|size| size > 0 && LegacyRandom::new(seed as i64).next_int_bound(size) == Ok(42))
 }
 
-impl Mode {
-    /// The id native mods see for this screen (`NativeScreenView.id`, the
-    /// screen hooks): one per variant, a hook's contract, so it stays the
-    /// same from release to release. A new variant must add one.
-    pub fn id(&self) -> &'static str {
-        match self {
-            Self::Main => "title",
-            Self::Select { .. } => "world_select",
-            Self::Create { .. } => "world_create",
-            Self::CreateFlat { .. } => "world_create_flat",
-            Self::CreateBuffet { .. } => "world_create_buffet",
-            Self::Edit { .. } => "world_edit",
-            Self::Backup { .. } => "world_backup",
-            Self::BackupBeforeUpgrade { .. } => "world_backup_confirm",
-            Self::OptimizeConfirm { .. } => "world_optimize_confirm",
-            Self::Optimize { .. } => "world_optimize",
-            Self::LowDiskSpace { .. } => "low_disk_space",
-            Self::Delete { .. } => "world_delete",
-            Self::Recover { .. } => "world_recover",
-            Self::Recovered { .. } => "world_recovered",
-            Self::Error { .. } => "error",
-            Self::Multiplayer(screen) => screen.id(),
-            Self::MultiplayerWarning { .. } => "multiplayer_warning",
-            Self::Onboarding(_) => "onboarding",
-            Self::BanNotice(_) => "ban_notice",
-        }
-    }
-}
-
 impl Title {
     /// Names the player for the `<NAME> IS YOU` splash; `name` is only asked for when that splash was rolled.
     pub fn with_user(mut self, name: impl FnOnce() -> String) -> Self {
@@ -784,6 +700,7 @@ impl Title {
             open_request: None,
             toast: None,
             icons: RefCell::new(std::collections::HashMap::new()),
+            uploaded_icon_slots: RefCell::new(std::collections::HashMap::new()),
             splash: choose_splash(&splashes, seed, (today.month(), today.day())),
             splash_you,
             recent: std::cell::RefCell::new(None),
@@ -903,45 +820,6 @@ impl Title {
                 }
             }
             _ => {}
-        }
-    }
-    /// A press on the single-biome screen: its search box, list or buttons.
-    fn buffet_click(&mut self, x: f32, y: f32, size: (f32, f32), hit: Option<u8>) {
-        match hit {
-            Some(80) => self.close_buffet(true),
-            Some(81) => self.close_buffet(false),
-            None => {
-                if let Mode::CreateBuffet { buffet, .. } = &mut self.mode {
-                    buffet::click(buffet, (x, y), size);
-                }
-            }
-            _ => {}
-        }
-    }
-    /// Return to Create New World, keeping (`apply`) the chosen biome
-    /// (`CreateBuffetWorldScreen`'s Done and Cancel).
-    fn close_buffet(&mut self, apply: bool) {
-        let mode = std::mem::replace(&mut self.mode, Mode::Main);
-        if let Mode::CreateBuffet {
-            name,
-            seed,
-            creative,
-            focus,
-            mut options,
-            buffet,
-        } = mode
-        {
-            if apply {
-                options.world_type = crate::save::WorldPreset::SingleBiomeSurface;
-                options.single_biome = buffet.biome.clone();
-            }
-            self.mode = Mode::Create {
-                name,
-                seed,
-                creative,
-                focus,
-                options,
-            };
         }
     }
     /// Return to Create New World, keeping (`apply`) or dropping the layers.
@@ -1118,10 +996,6 @@ impl Title {
             flat::drag(flat, cursor, size);
             return;
         }
-        if let Mode::CreateBuffet { buffet, .. } = &mut self.mode {
-            buffet::drag(buffet, cursor, size);
-            return;
-        }
         if let Mode::Select { worlds, .. } = &self.mode {
             let (top, bottom, _, content) = self.world_list(worlds, size);
             let mut scroll = self.scroll.get();
@@ -1140,9 +1014,6 @@ impl Title {
         if let Mode::CreateFlat { flat, .. } = &mut self.mode {
             flat::release(flat);
         }
-        if let Mode::CreateBuffet { buffet, .. } = &mut self.mode {
-            buffet::release(buffet);
-        }
         self.scroll.get_mut().release();
     }
     /// Mouse wheel over the classic world and server lists, or cycle buttons. Returns true if a button was cycled.
@@ -1157,10 +1028,6 @@ impl Title {
         }
         if let Mode::CreateFlat { flat, .. } = &mut self.mode {
             flat::wheel(flat, delta, cursor, size);
-            return false;
-        }
-        if let Mode::CreateBuffet { buffet, .. } = &mut self.mode {
-            buffet::wheel(buffet, delta, cursor, size);
             return false;
         }
         if let Mode::Create {
@@ -1307,23 +1174,6 @@ impl Title {
     fn play(&mut self, world: WorldEntry) -> Action {
         // LevelSummary.primaryActionActive: a world another copy has open cannot be joined.
         if world.locked {
-            return Action::None;
-        }
-        // `LevelStorageSource.validateAndCreateAccess`: a world folder holding
-        // a symbolic link is refused before an access is made over it, and
-        // `WorldOpenFlows.createWorldAccess` puts the symlink warning where
-        // the world would have gone.
-        if world_management::symlinks(&self.saves, &world.folder)
-            .is_ok_and(|links| !links.is_empty())
-        {
-            self.mode = Mode::Error {
-                message: lang::get_or(
-                    "symlink_warning.message.world",
-                    "You are trying to open a world whose folder holds links to other files. That can be a risk to the rest of your files, so the world stays closed.",
-                ),
-                return_to: Box::new(self.mode.clone()),
-                alert: Some(Alert::Symlink),
-            };
             return Action::None;
         }
         if crate::save::SessionLock::acquire(&self.saves.join(&world.folder)).is_err() {
@@ -1596,34 +1446,42 @@ impl Title {
     ) {
         let path = self.saves.join(&world.folder).join("icon.png");
         let mut icons = self.icons.borrow_mut();
-        let pixels = if let Ok(modified) = std::fs::metadata(&path).and_then(|m| m.modified()) {
-            let cached = icons
-                .entry(path.clone())
-                .or_insert_with(|| (std::time::UNIX_EPOCH, None));
-            if cached.0 != modified {
-                *cached = (
+        if !icons.contains_key(&path) {
+            let entry = if let Ok(modified) = std::fs::metadata(&path).and_then(|m| m.modified()) {
+                (
                     modified,
                     crate::hud::decode(&path)
                         .ok()
                         .filter(|(w, h, _)| *w == 64 && *h == 64)
                         .map(|(_, _, p)| p),
-                );
-            }
-            cached.1.as_ref()
-        } else {
-            None
-        };
+                )
+            } else {
+                (std::time::UNIX_EPOCH, None)
+            };
+            icons.insert(path.clone(), entry);
+        }
+        let entry_ref = icons.get(&path);
+        let modified = entry_ref.map_or(std::time::UNIX_EPOCH, |(m, _)| *m);
+        let pixels = entry_ref.and_then(|(_, p)| p.as_ref());
         let sprite = format!("horizon/world-icon{slot}");
         if let Some(pixels) = pixels
             && let Some(rect) = atlas.sprites.get(&sprite)
         {
-            batch.patches.push(crate::font::Patch {
-                x: (rect.u0 * atlas.width as f32).round() as u32,
-                y: (rect.v0 * atlas.height as f32).round() as u32,
-                width: 64,
-                height: 64,
-                rgba: pixels.clone(),
-            });
+            let atlas_id = atlas as *const HudAtlas as usize;
+            let mut uploaded = self.uploaded_icon_slots.borrow_mut();
+            let already_uploaded = uploaded
+                .get(&slot)
+                .is_some_and(|(aid, p, m)| *aid == atlas_id && *p == path && *m == modified);
+            if !already_uploaded {
+                batch.patches.push(crate::font::Patch {
+                    x: (rect.u0 * atlas.width as f32).round() as u32,
+                    y: (rect.v0 * atlas.height as f32).round() as u32,
+                    width: 64,
+                    height: 64,
+                    rgba: pixels.clone(),
+                });
+                uploaded.insert(slot, (atlas_id, path, modified));
+            }
             batch.sprite_scaled(atlas, &sprite, x, y, 32.0, 32.0, u32::MAX);
         } else {
             batch.sprite_scaled(atlas, "misc/unknown_server", x, y, 32.0, 32.0, u32::MAX);
@@ -1852,7 +1710,6 @@ impl Title {
                 creative, options, ..
             } => create_world::buttons(w, h, *creative, options),
             Mode::CreateFlat { flat, .. } => flat::buttons(w, h, flat),
-            Mode::CreateBuffet { buffet, .. } => buffet::buttons(w, h, buffet),
             Mode::Edit { world, name, .. } => {
                 let x = (w / 2.0).floor() - 100.0;
                 let top = edit_top(h);
@@ -2197,13 +2054,6 @@ impl Title {
                     "Superflat Customization",
                 ),
             ),
-            Mode::CreateBuffet { .. } => ScreenInfo::new(
-                "create_world/buffet",
-                get(
-                    "createWorld.customize.buffet.title",
-                    "Single Biome Customization",
-                ),
-            ),
             Mode::Edit { .. } => {
                 ScreenInfo::new("edit_world", get("selectWorld.edit.title", "Edit World"))
             }
@@ -2331,10 +2181,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                     Some(Alert::Recreate) => {
                         get("selectWorld.recreate.error.title", "An error occurred!")
                     }
-                    Some(Alert::Symlink) => get(
-                        "symlink_warning.title.world",
-                        "The world folder contains links",
-                    ),
                     None => get("selectWorld.access_failure", "Failed to access world"),
                 };
                 ScreenInfo::new("world_error", join(&[&title, message]))
@@ -2406,7 +2252,7 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
         cursor: (f32, f32),
         hide_splash: bool,
     ) {
-        self.draw_with_items(atlas, None, batch, cursor, hide_splash, false);
+        self.draw_with_items(atlas, None, batch, cursor, hide_splash);
     }
     /// [`Title::draw`] with the item models, which draw the item icons of the
     /// Superflat screens the way `GuiGraphics.renderItem` does.
@@ -2417,7 +2263,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
         batch: &mut HudBatch,
         cursor: (f32, f32),
         hide_splash: bool,
-        hide_server_address: bool,
     ) {
         let (w, h) = (batch.width.ceil(), batch.height.ceil());
         if let Some(rules) = self.rules.borrow_mut().as_mut() {
@@ -2490,10 +2335,7 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                 if let Some(nightly) = horizon_core::release::nightly_label() {
                     batch.text(atlas, &nightly, 2.0, 2.0, u32::MAX, true);
                 }
-                let notice = &lang::get_or(
-                    "horizon.title.not_affiliated",
-                    "Not affiliated with Mojang or Microsoft",
-                );
+                let notice = "Not affiliated with Mojang or Microsoft";
                 // TitleScreen.init's `PlainTextButton`: the text's width wide, 10
                 // high at `height - 10`; `extractContents` underlines it while
                 // hovered or focused, and its press opens the credits.
@@ -2687,7 +2529,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                 ..
             } => self.draw_create(atlas, batch, cursor, name, seed, *focus, options),
             Mode::CreateFlat { flat, .. } => flat::draw(self, atlas, items, batch, cursor, flat),
-            Mode::CreateBuffet { buffet, .. } => buffet::draw(self, atlas, batch, cursor, buffet),
             Mode::Edit { name, focused, .. } => {
                 crate::ui::menu_background(batch, atlas, 0.0, 0.0, w, h, false);
                 centered(
@@ -2989,11 +2830,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                             "An error occurred!",
                             u32::MAX,
                         ),
-                        Alert::Symlink => (
-                            "symlink_warning.title.world",
-                            "The world folder contains links",
-                            u32::MAX,
-                        ),
                     };
                     (70.0, 90.0, key, fallback, color)
                 } else {
@@ -3117,7 +2953,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                 &mut self.caret.borrow_mut(),
                 self.started,
                 cursor,
-                hide_server_address,
             ),
         }
         for b in self.buttons(w, h) {
@@ -3164,7 +2999,15 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                 );
                 continue;
             }
-            b.draw_label(batch, atlas, color);
+            let tw = HudBatch::text_width(atlas, &b.label);
+            batch.text(
+                atlas,
+                &b.label,
+                b.x + (b.w / 2.0).floor() - (tw.ceil() / 2.0).floor(),
+                b.y + 6.0,
+                color,
+                true,
+            );
             if let Some((icon, size)) = b.trailing {
                 // TextAndIcon: `x + width - spriteWidth - 2`, centred in the height.
                 batch.sprite_scaled(
@@ -3267,69 +3110,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
         let lines = atlas.font.split(&Text::translate(key, &[]), 170.0);
         crate::ui::tooltip(batch, atlas, &lines, cursor);
     }
-    /// `TabManager.setCurrentTab`: the screen shows `tab`, whose own fields
-    /// take no focus, and whether the open tab changed (the click sound).
-    fn select_create_tab(&mut self, tab: usize) -> bool {
-        let Mode::Create { focus, options, .. } = &mut self.mode else {
-            return false;
-        };
-        let changed = options.tab != tab;
-        if changed {
-            options.tab = tab;
-            *focus = 2;
-        }
-        changed
-    }
-    /// `TabNavigationBar.keyPressed`: with Ctrl held, a digit picks a tab and
-    /// Tab steps to the next one, or to the previous with Shift. `None` for a
-    /// key the bar leaves alone, so a digit still reaches the field; otherwise
-    /// whether to play the click sound, as a tab that changed does.
-    pub fn tab_bar_key(
-        &mut self,
-        key: winit::keyboard::KeyCode,
-        ctrl: bool,
-        shift: bool,
-    ) -> Option<bool> {
-        // The rules and the experiments take the keys, and so does the read
-        // that prepares the world.
-        if !ctrl
-            || self.preparing
-            || self.rules.get_mut().is_some()
-            || self.experiments.get_mut().is_some()
-            || self.confirm_experiments.get_mut().is_some()
-        {
-            return None;
-        }
-        let Mode::Create { options, .. } = &self.mode else {
-            return None;
-        };
-        let next = create_world::next_tab_index(options.tab, key, shift)?;
-        Some(self.select_create_tab(next.min(create_world::tab_count() - 1)))
-    }
-    /// `AbstractSelectionList.mouseClicked`: the row under the pointer takes
-    /// a click of any button (`ObjectSelectionList.Entry.mouseClicked` accepts
-    /// them all), so a middle click selects a world and its Play, Edit and
-    /// Delete buttons hear of it (`WorldSelectionList.setSelected`), without
-    /// opening it. Only the left button joins, through [`Self::click`].
-    pub fn select_world_at(&mut self, x: f32, y: f32, size: (f32, f32)) -> bool {
-        let index = {
-            let Mode::Select { worlds, .. } = &self.mode else {
-                return false;
-            };
-            let Some((row, _)) = self.world_row_at(worlds, (x, y), size) else {
-                return false;
-            };
-            let Some((index, _)) = self.visible_worlds(worlds).nth(row) else {
-                return false;
-            };
-            index
-        };
-        if let Mode::Select { selected, .. } = &mut self.mode {
-            *selected = Some(index);
-        }
-        true
-    }
-
     /// The action and whether to play `AbstractWidget.playButtonClickSound`.
     /// Navigation buttons can return `Action::None` while still sounding.
     pub fn click(&mut self, x: f32, y: f32, size: (f32, f32)) -> (Action, bool) {
@@ -3344,10 +3124,15 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
         }
         let (w, h) = (size.0.ceil(), size.1.ceil());
         // MenuTabBar: a new tab clears the focus and clicks.
-        if let Some(tab) = create_world::tab_at(w, (x, y))
-            && matches!(self.mode, Mode::Create { .. })
+        if let Mode::Create { focus, options, .. } = &mut self.mode
+            && let Some(tab) = create_world::tab_at(w, (x, y))
         {
-            return (Action::None, self.select_create_tab(tab));
+            let changed = options.tab != tab;
+            if changed {
+                options.tab = tab;
+                *focus = 2;
+            }
+            return (Action::None, changed);
         }
         // The SafetyScreen's box toggles where it was last drawn.
         if let Mode::MultiplayerWarning { check } = &mut self.mode {
@@ -3377,18 +3162,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
             .map(|b| b.id);
         if hit.is_some() {
             self.focused_button = hit;
-        } else if matches!(
-            self.mode,
-            Mode::Multiplayer(
-                crate::multiplayer::Screen::Edit { .. } | crate::multiplayer::Screen::Friend { .. }
-            )
-        ) {
-            // A press on a text field takes the focus from the button.
-            self.focused_button = None;
-        }
-        if matches!(self.mode, Mode::CreateBuffet { .. }) {
-            self.buffet_click(x, y, (w, h), hit);
-            return (Action::None, hit.is_some());
         }
         if matches!(self.mode, Mode::CreateFlat { .. }) {
             self.flat_click(x, y, (w, h), hit);
@@ -3564,12 +3337,11 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                             return Action::None;
                         };
                         self.create_return_to_main = false;
-                        let mut options = WorldOptions::of_world(
+                        let options = WorldOptions::of_world(
                             &level,
                             world.commands,
                             &self.saves.join(&world.folder),
                         );
-                        options.restore_feature_packs(&self.resources, &level);
                         self.mode = Mode::Create {
                             name: level.name,
                             seed: level.seed.to_string(),
@@ -3694,35 +3466,9 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
             }
             // CreateWorldScreen.openGameRulesScreen over a copy of the rules.
             (Mode::Create { options, .. }, Some(29)) => {
-                let rules = options
-                    .rules
-                    .copy_with_features(&options.enabled_features(&self.resources));
-                *self.rules.get_mut() = Some(RulesScreen::for_creation(&rules));
+                *self.rules.get_mut() = Some(RulesScreen::for_creation(&options.rules));
                 Action::None
             }
-            // CreateBuffetWorldScreen for the single-biome preset.
-            (
-                Mode::Create {
-                    name,
-                    seed,
-                    creative,
-                    focus,
-                    options,
-                },
-                Some(26),
-            ) if options.world_type == crate::save::WorldPreset::SingleBiomeSurface => {
-                let buffet = buffet::State::new(&self.resources, &options.single_biome);
-                self.mode = Mode::CreateBuffet {
-                    name: name.clone(),
-                    seed: seed.clone(),
-                    creative: *creative,
-                    focus: *focus,
-                    options: options.clone(),
-                    buffet,
-                };
-                Action::None
-            }
-            // CreateFlatWorldScreen for the flat preset.
             (
                 Mode::Create {
                     name,
@@ -3863,9 +3609,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                 .filter(|(id, _)| id == focus)
                 .map(|(_, rect)| rect),
             Mode::Multiplayer(screen) => screen.focused_box((w, h)),
-            Mode::CreateBuffet { buffet, .. } if buffet.query_focused => {
-                Some(buffet::search_box(w))
-            }
             _ => None,
         }
     }
@@ -4007,17 +3750,8 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
         if self.rules.get_mut().is_some() {
             return;
         }
-        if matches!(self.mode, Mode::Multiplayer(_)) {
-            let (w, h) = size;
-            let enabled: Vec<u8> = self
-                .buttons(w, h)
-                .iter()
-                .filter(|b| b.enabled)
-                .map(|b| b.id)
-                .collect();
-            if let Mode::Multiplayer(screen) = &mut self.mode {
-                screen.tab_dir(reverse, &enabled, &mut self.focused_button);
-            }
+        if let Mode::Multiplayer(screen) = &mut self.mode {
+            screen.tab();
             return;
         }
         let (w, h) = size;
@@ -4027,10 +3761,8 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
         match &mut self.mode {
             Mode::Select { .. } => {
                 if self.search_focused {
-                    // Tab leaves the search box for the world list, where the
-                    // arrow keys pick a row and Enter or Space joins it.
                     self.search_focused = false;
-                    self.focused_button = None;
+                    self.focused_button = enabled.first().copied();
                 } else if let Some(cur) = self.focused_button {
                     if let Some(pos) = enabled.iter().position(|&id| id == cur) {
                         if !reverse && pos + 1 < enabled.len() {
@@ -4045,13 +3777,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                         self.focused_button = None;
                         self.search_focused = true;
                     }
-                } else if let Some(first) = if reverse {
-                    enabled.last().copied()
-                } else {
-                    enabled.first().copied()
-                } {
-                    // The list had focus: Tab moves on to the buttons.
-                    self.focused_button = Some(first);
                 } else {
                     self.search_focused = true;
                 }
@@ -4150,19 +3875,12 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
         }
     }
     /// 2D spatial arrow key navigation across enabled buttons.
-    pub fn arrow_key(&mut self, key: winit::keyboard::KeyCode, size: (f32, f32), shift: bool) {
+    pub fn arrow_key(&mut self, key: winit::keyboard::KeyCode, size: (f32, f32)) {
         use winit::keyboard::KeyCode;
         if self.rules.get_mut().is_some() {
             return;
         }
         if self.has_caret_field() {
-            return;
-        }
-        if self.focused_button.is_none()
-            && let Mode::Multiplayer(screen) = &mut self.mode
-            && matches!(key, KeyCode::ArrowUp | KeyCode::ArrowDown)
-            && screen.arrow(key == KeyCode::ArrowUp, shift, size, &self.saves)
-        {
             return;
         }
         if self.list_focused()
@@ -4425,9 +4143,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
     fn close_rules(&mut self, exit: Exit) {
         *self.rules.get_mut() = None;
         if let (Exit::Apply(changes), Mode::Create { options, .. }) = (exit, &mut self.mode) {
-            options.rules = options
-                .rules
-                .copy_with_features(&options.enabled_features(&self.resources));
             for (name, value) in changes {
                 options.rules.set(name, value);
             }
@@ -4536,7 +4251,6 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                     self.close_flat(false);
                 }
             }
-            Mode::CreateBuffet { .. } => self.close_buffet(false),
             Mode::Create { .. } => self.cancel_create(),
             // Screen.keyPressed: Escape closes the screen, which fades out.
             Mode::Onboarding(_) => self.onboarding_close(),
@@ -4604,10 +4318,6 @@ fn caret_field<'a>(
         Mode::CreateFlat { flat, .. } if flat.page == flat::Page::Presets && flat.share_focused => {
             Some((FLAT_SHARE, &mut flat.share, 1230))
         }
-        // CreateBuffetWorldScreen's search box.
-        Mode::CreateBuffet { buffet, .. } if buffet.query_focused => {
-            Some((buffet::SEARCH, &mut buffet.query, 50))
-        }
         _ => None,
     }
 }
@@ -4615,34 +4325,6 @@ fn caret_field<'a>(
 #[cfg(test)]
 mod classic_tests {
     use super::*;
-
-    /// Tab is how a keyboard player reaches the world list: from the search
-    /// box it hands focus to the list (where the arrow keys pick a row and
-    /// Enter joins it), and from the list it moves on to the buttons.
-    #[test]
-    fn tab_walks_from_the_search_box_to_the_world_list() {
-        let mut title = Title::new(
-            PathBuf::new(),
-            Path::new("/nonexistent/horizon-test-resources"),
-        );
-        title.mode = Mode::Select {
-            worlds: Vec::new(),
-            selected: None,
-        };
-        title.search_focused = true;
-        title.focused_button = None;
-        title.tab_dir(false, (854.0, 480.0));
-        assert!(!title.search_focused, "the search box lets go");
-        assert!(
-            title.focused_button.is_none() && title.list_focused(),
-            "the world list has focus"
-        );
-        title.tab_dir(false, (854.0, 480.0));
-        assert!(
-            title.focused_button.is_some(),
-            "the next Tab reaches the buttons"
-        );
-    }
 
     #[test]
     fn ban_notices_chain_into_the_title_and_gate_multiplayer() {

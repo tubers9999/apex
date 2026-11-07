@@ -9,7 +9,7 @@ use horizon_client::{
     containers::BlockEntity,
     hud::{HudBatch, rgba},
     screen_draw::Measure,
-    text::Text,
+    text::{self, Text},
     ui::{self, EditBox},
     world::World,
 };
@@ -338,7 +338,7 @@ impl Game<'_> {
         let block = self.command_block(pos).cloned();
         let m = Measure(&self.gui.atlas.font);
         let c = Commands {
-            dispatcher: super::chat::chat_tree(&self.remote),
+            dispatcher: super::chat::chat_tree(&self.remote, &self.mods),
             registries: &self.ui.registries,
         };
         let Some(screen) = self.command_block_screen.as_mut() else {
@@ -546,9 +546,9 @@ impl Game<'_> {
         }
     }
     /// `CommandSourceStack.sendSuccess` from a command block: its output when
-    /// `send_command_feedback`, and `broadcastToAdmins` when `broadcast` and
+    /// `send_command_feedback`, and `broadcastToAdmins` when
     /// `command_block_output`.
-    pub(super) fn command_block_success(&mut self, pos: Pos, message: Text, broadcast: bool) {
+    pub(super) fn command_block_success(&mut self, pos: Pos, message: Text) {
         let Some(name) = self
             .command_block(pos)
             .filter(|c| c.track_output)
@@ -560,8 +560,11 @@ impl Game<'_> {
         if feedback {
             self.command_block_output(pos, message.clone());
         }
-        if broadcast && feedback && self.ui.rules.bool("command_block_output") {
-            self.broadcast_source_to_admins(name, message);
+        if feedback && self.ui.rules.bool("command_block_output") {
+            let broadcast = Text::translate("chat.type.admin", &[name, message])
+                .with_color(text::GRAY)
+                .italic();
+            self.system_message(broadcast);
         }
     }
 
@@ -588,7 +591,7 @@ impl Game<'_> {
         let (w, h) = self.gui_size();
         let m = Measure(&self.gui.atlas.font);
         let c = Commands {
-            dispatcher: super::chat::chat_tree(&self.remote),
+            dispatcher: super::chat::chat_tree(&self.remote, &self.mods),
             registries: &self.ui.registries,
         };
         let mut command = ChatScreen::command_block(&m, &c, &block.command, w as i32, h as i32);
@@ -689,7 +692,7 @@ impl Game<'_> {
         // The command box, then its suggestions over the widgets.
         let m = Measure(&atlas.font);
         let c = Commands {
-            dispatcher: super::chat::chat_tree(&self.remote),
+            dispatcher: super::chat::chat_tree(&self.remote, &self.mods),
             registries: &self.ui.registries,
         };
         s.command.resize(&m, &c, w as i32, h as i32);
@@ -725,7 +728,7 @@ impl Game<'_> {
         };
         let m = Measure(&self.gui.atlas.font);
         let c = Commands {
-            dispatcher: super::chat::chat_tree(&self.remote),
+            dispatcher: super::chat::chat_tree(&self.remote, &self.mods),
             registries: &self.ui.registries,
         };
         s.command.server_suggestions(&m, &c, id, range, list);
@@ -739,7 +742,7 @@ impl Game<'_> {
         {
             let m = Measure(&self.gui.atlas.font);
             let c = Commands {
-                dispatcher: super::chat::chat_tree(&self.remote),
+                dispatcher: super::chat::chat_tree(&self.remote, &self.mods),
                 registries: &self.ui.registries,
             };
             let (x, y) = (f64::from(self.cursor.0), f64::from(self.cursor.1));
@@ -803,8 +806,8 @@ impl Game<'_> {
         shortcut: Option<horizon_client::clipboard::EditShortcut>,
         text: Option<&str>,
     ) {
-        let ctrl = self.has_control_down_with_quirk();
-        let shift = self.has_shift_down();
+        let ctrl = self.keys.contains(&KeyCode::ControlLeft);
+        let shift = self.keys.contains(&KeyCode::ShiftLeft);
         // Windows' AltGr is Ctrl+Alt, and its characters still type.
         let types_text = self.types_text();
         let Some(mut s) = self.command_block_screen.take() else {
@@ -812,7 +815,7 @@ impl Game<'_> {
         };
         let m = Measure(&self.gui.atlas.font);
         let c = Commands {
-            dispatcher: super::chat::chat_tree(&self.remote),
+            dispatcher: super::chat::chat_tree(&self.remote, &self.mods),
             registries: &self.ui.registries,
         };
         if s.command.suggestions_key(&m, &c, key, shift) {
@@ -846,6 +849,33 @@ impl Game<'_> {
         }
     }
     /// Characters typed into the command box (`StringUtil.isAllowedChatCharacter`).
+    #[cfg(target_os = "android")]
+    pub(super) fn command_block_edit_value(&mut self) -> String {
+        self.command_block_screen
+            .as_mut()
+            .map(|s| {
+                let m = Measure(&self.gui.atlas.font);
+                s.command
+                    .input
+                    .move_cursor_to(&m, s.command.value().len(), false);
+                s.command.value().to_owned()
+            })
+            .unwrap_or_default()
+    }
+    pub(super) fn command_block_ime(&mut self, key: Option<KeyCode>, text: Option<&str>) {
+        if key == Some(KeyCode::Enter) {
+            if let Some(screen) = self.command_block_screen.take() {
+                self.set_command_block(&screen);
+            }
+            self.close_command_block();
+            return;
+        }
+        if let Some(text) = text {
+            self.command_block_type(text);
+        } else {
+            self.command_block_key_code(KeyCode::Backspace, None, None);
+        }
+    }
     pub(super) fn command_block_type(&mut self, typed: &str) {
         let allowed: String = typed
             .chars()
@@ -859,7 +889,7 @@ impl Game<'_> {
         };
         let m = Measure(&self.gui.atlas.font);
         let c = Commands {
-            dispatcher: super::chat::chat_tree(&self.remote),
+            dispatcher: super::chat::chat_tree(&self.remote, &self.mods),
             registries: &self.ui.registries,
         };
         s.command.type_text(&m, &c, &allowed);
@@ -917,8 +947,7 @@ impl Game<'_> {
             conditional: p.flags & 2 != 0,
             auto: p.flags & 4 != 0,
         };
-        // The confirmation (`advMode.setCommand.success`) is the editing player's alone.
-        self.as_guest_messaged(host, conn, |game| {
+        self.as_guest(host, conn, |game| {
             if allowed {
                 game.apply_command_block(&edit);
                 // BaseCommandBlock.onUpdated: the clients get the new command.

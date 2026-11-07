@@ -148,11 +148,6 @@ impl BlockEditScreen {
             dragging: None,
         }
     }
-    /// Whether one of the block's text boxes has the keyboard's focus: the
-    /// window asks the OS for an input method only then.
-    pub(super) fn text_focused(&self) -> bool {
-        self.focus.is_some()
-    }
 }
 
 impl Game<'_> {
@@ -344,7 +339,7 @@ impl Game<'_> {
             .map_or([1, 1], |r| [r.config.width, r.config.height]);
         let b = HudBatch::new(size);
         let cursor = self.cursor;
-        let shift = self.has_shift_down();
+        let shift = self.keys.contains(&KeyCode::ShiftLeft);
         let alt = self.keys.contains(&KeyCode::AltLeft);
         let atlas_click = |game: &Game<'_>, edit: &mut EditBox| {
             edit.click(&game.gui.atlas, cursor.0, false, false);
@@ -437,8 +432,8 @@ impl Game<'_> {
         shortcut: Option<horizon_client::clipboard::EditShortcut>,
         text: Option<&str>,
     ) {
-        let ctrl = self.has_control_down_with_quirk();
-        let shift = self.has_shift_down();
+        let ctrl = self.keys.contains(&KeyCode::ControlLeft);
+        let shift = self.keys.contains(&KeyCode::ShiftLeft);
         let types_text = self.types_text();
         let size = self
             .renderer
@@ -587,6 +582,33 @@ impl Game<'_> {
         }
         self.block_editor = Some(screen);
         self.block_editor_after_input();
+    }
+
+    pub(super) fn block_editor_typing(&self) -> bool {
+        self.screen == Screen::BlockEditor
+            && self
+                .block_editor
+                .as_ref()
+                .is_some_and(|s| s.focus.is_some())
+    }
+
+    #[cfg(target_os = "android")]
+    pub(super) fn block_editor_edit_value(&mut self) -> Option<String> {
+        let screen = self.block_editor.as_mut()?;
+        let focus = screen.focus?;
+        let edit = screen.editor.edits().get_mut(focus)?;
+        edit.move_cursor_to_end(false);
+        Some(edit.value.clone())
+    }
+
+    /// Committed OSK text bypasses physical-key shortcuts; key actions retain
+    /// the editor's own validation and Enter/confirmation rules.
+    pub(super) fn block_editor_ime(&mut self, key: Option<KeyCode>, text: Option<&str>) {
+        if let Some(text) = text {
+            self.block_editor_type(text);
+        } else if let Some(key) = key {
+            self.block_editor_key_code(key, None, None);
+        }
     }
 }
 

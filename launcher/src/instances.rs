@@ -311,9 +311,7 @@ fn list_in(game_home: &Path, data: &Path) -> Vec<Instance> {
             .instances
             .retain(|id, _| id == DEFAULT || id.contains(':') || own.contains(id));
         if store.instances.len() != before {
-            if let Err(e) = store.save(data) {
-                eprintln!("Horizon: instances.json is not saved: {e}");
-            }
+            let _ = store.save(data);
         }
     }
     for slug in own {
@@ -380,13 +378,6 @@ fn find_in(all: &[Instance], query: &str) -> Result<Instance, String> {
 /// and forgets it: its choices, and the selection when Play started it. Horizon's own instance,
 /// the game's home, stays.
 pub fn delete(query: &str) -> Result<Instance, String> {
-    let (gone, saved) = delete_with_selection(query)?;
-    saved?;
-    Ok(gone)
-}
-
-/// A completed deletion stays completed even if saving the new selection fails.
-pub fn delete_with_selection(query: &str) -> Result<(Instance, Result<(), String>), String> {
     let gone = delete_in(
         &backend::game_home(),
         &backend::data_dir(),
@@ -394,13 +385,11 @@ pub fn delete_with_selection(query: &str) -> Result<(Instance, Result<(), String
         &crate::desktop_seams::to_trash,
     )?;
     let mut settings = backend::Settings::load();
-    let saved = if settings.instance.as_ref() == Some(&gone.id) {
+    if settings.instance.as_ref() == Some(&gone.id) {
         settings.instance = None;
-        settings.save()
-    } else {
-        Ok(())
-    };
-    Ok((gone, saved))
+        settings.save();
+    }
+    Ok(gone)
 }
 
 fn delete_in(
@@ -438,7 +427,7 @@ pub fn select(query: &str) -> Result<Instance, String> {
     let instance = find(query)?;
     let mut settings = backend::Settings::load();
     settings.instance = (instance.kind != Kind::Default).then(|| instance.id.clone());
-    settings.save()?;
+    settings.save();
     Ok(instance)
 }
 
@@ -454,8 +443,6 @@ const NOT_COPIED: &[&str] = &[
     "telemetry",
     "mod-browser",
     ".horizon-cache",
-    // Far terrain's copies of what servers sent, rebuilt as the instance plays.
-    "server-terrain",
 ];
 
 /// Files of the player, not of one instance, that a new instance starts with: the keys and video

@@ -17,14 +17,6 @@ use horizon_client::{
 /// `Abilities.walkingSpeed`.
 const WALKING_SPEED: f32 = 0.1;
 
-fn valid_fov_modifier(modifier: f32, fallback: f32) -> f32 {
-    if modifier.is_finite() && (0.01..=10.0).contains(&modifier) {
-        modifier
-    } else {
-        fallback
-    }
-}
-
 impl Game<'_> {
     /// `Player.isScoping`: using a spyglass.
     pub(super) fn scoping(&self) -> bool {
@@ -83,12 +75,9 @@ impl Game<'_> {
     pub(super) fn tick_fov(&mut self) {
         let first_person = self.camera_type.first_person();
         let effect = self.fov_effect_scale();
-        let target = self.fov_player().map_or(1.0, |player| {
-            let base = field_of_view_modifier(&player, first_person, effect);
-            let mut modifier = base;
-            self.native_compute_fov_modifier(&player, base, &mut modifier);
-            valid_fov_modifier(modifier, base)
-        });
+        let target = self
+            .fov_player()
+            .map_or(1.0, |p| field_of_view_modifier(&p, first_person, effect));
         let target = self.zoomed_fov_target(target);
         // A server's spectator camera on a mob: its eye height. Its modifier
         // stays 1 (another player's own modifier is not modelled here); the
@@ -118,7 +107,7 @@ impl Game<'_> {
     }
     /// The fluid at the camera, as `Camera.getFluidInCamera` reports it.
     pub(super) fn camera_fluid(&self, camera: [f64; 3]) -> CameraFluid {
-        match fog_type(&self.world, self.res.facts(), camera, &self.near_plane()) {
+        match fog_type(&self.world, self.res.facts(), camera, self.forward()) {
             FogType::Water => CameraFluid::Water,
             FogType::Lava => CameraFluid::Lava,
             FogType::PowderSnow => CameraFluid::PowderSnow,
@@ -135,14 +124,7 @@ impl Game<'_> {
             self.camera_fluid(camera),
             false,
         );
-        let vanilla = self.zoomed_fov_degrees(fov);
-        let mut degrees = vanilla;
-        self.native_compute_fov(partial, camera, &mut degrees);
-        if degrees.is_finite() && (1.0..=179.0).contains(&degrees) {
-            degrees
-        } else {
-            vanilla
-        }
+        self.zoomed_fov_degrees(fov)
     }
     /// `Camera.calculateHudFov`: the first-person hand's field of view.
     pub(super) fn hud_fov_degrees(&self, partial: f32, camera: [f64; 3]) -> f32 {
@@ -156,6 +138,9 @@ impl Game<'_> {
     /// The pose `GameRenderer.renderLevel` multiplies into the projection:
     /// `bobHurt`, then `bobView` with the View Bobbing option.
     pub(super) fn bob_matrix(&self, partial: f32) -> glam::Mat4 {
+        if horizon_client::ui_theme::motion::game_animations_disabled() {
+            return glam::Mat4::IDENTITY;
+        }
         let Some(p) = self.player.as_ref() else {
             return glam::Mat4::IDENTITY;
         };
@@ -200,12 +185,12 @@ impl Game<'_> {
             self.avatar.add_walked(dx, dz);
         }
     }
-    /// `SpyglassItem.use`: the sound, then start scoping (a mod's `Start`
-    /// may refuse that, not the sound).
+    /// `SpyglassItem.use`: start scoping.
     pub(super) fn use_spyglass(&mut self) {
-        let at = self.eye_position();
-        self.audio.play("minecraft:item.spyglass.use", at, 1.0, 1.0);
-        self.start_using_item();
+        if self.start_using_item() {
+            let at = self.eye_position();
+            self.audio.play("minecraft:item.spyglass.use", at, 1.0, 1.0);
+        }
     }
     /// `SpyglassItem.releaseUsing` / `finishUsingItem` (after 1200 ticks).
     pub(super) fn stop_spyglass(&mut self) {
@@ -228,17 +213,5 @@ impl Game<'_> {
         let draws =
             hud_overlays::spyglass(batch.width as i32, batch.height as i32, self.scope_scale);
         hud_layout::paint(batch, &self.gui.atlas, &draws);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::valid_fov_modifier;
-    #[test]
-    fn modifier_validation() {
-        assert_eq!(valid_fov_modifier(0.5, 1.0), 0.5);
-        for value in [f32::NAN, f32::INFINITY, 0.0, 10.1] {
-            assert_eq!(valid_fov_modifier(value, 1.0), 1.0);
-        }
     }
 }

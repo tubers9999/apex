@@ -69,6 +69,9 @@ struct Mixer {
     #[cfg(feature = "audio")]
     device_lost: bool,
 }
+#[cfg(feature = "audio")]
+type DeviceProbe = (Option<String>, Option<String>, Vec<String>);
+
 /// A camera's forward, up and right vectors.
 type Basis = ([f64; 3], [f64; 3], [f64; 3]);
 impl Mixer {
@@ -144,6 +147,7 @@ struct SoundCache {
     bytes: usize,
     clock: u64,
 }
+#[cfg(any(test, not(target_os = "android")))]
 const CACHE_BYTES: usize = 64 << 20;
 impl SoundCache {
     fn get(&mut self, key: &str) -> Option<Samples> {
@@ -158,7 +162,16 @@ impl SoundCache {
         if let Some((old, _)) = self.entries.insert(key, (samples, self.clock)) {
             self.bytes -= Self::size(&old);
         }
-        while self.bytes > CACHE_BYTES && self.entries.len() > 1 {
+        #[cfg(target_os = "android")]
+        let budget = crate::android_runtime::sound_cache_budget();
+        #[cfg(not(target_os = "android"))]
+        let budget = CACHE_BYTES;
+        // Playing channels own their Arc; eviction never interrupts a sound.
+        let strict =
+            cfg!(target_os = "android") && crate::android_runtime::cache_budget_overridden();
+        while self.bytes > budget
+            && (self.entries.len() > 1 || (strict && !self.entries.is_empty()))
+        {
             let Some(oldest) = self
                 .entries
                 .iter()
@@ -183,7 +196,6 @@ struct Decode {
     key: String,
     file: PathBuf,
     channel: ChannelId,
-    looping: bool,
 }
 /// Give a channel waiting on its sound the decoded samples and start it, as
 /// the buffer future attaching and playing the source. A source stopped or
@@ -242,9 +254,13 @@ pub struct Audio {
     /// The other half of `lastSeenDevices`: every output device last seen.
     #[cfg(feature = "audio")]
     devices_seen: Vec<String>,
-    /// Ticks since the output devices were last looked at (`DeviceTracker.tick`).
+    /// Wall-clock time of the last device query; the launcher ticks per frame.
     #[cfg(feature = "audio")]
-    device_ticks: u32,
+    device_probe_started: std::time::Instant,
+    /// One in-flight device query. CPAL discovery can block for hundreds of
+    /// milliseconds on Android, so the render thread only receives its result.
+    #[cfg(feature = "audio")]
+    device_probe: Option<std::sync::mpsc::Receiver<DeviceProbe>>,
 }
 fn decode(path: &Path) -> Option<(Vec<f32>, u32)> {
     use symphonia::core::{
@@ -421,7 +437,7 @@ impl Backend for MixerBackend {
         let key = format!("{namespace}:{path}");
         let cached = self.cache.lock().ok().and_then(|mut c| c.get(&key));
         if let Some(samples) = cached {
-            attach(&self.mixer, channel, samples, looping);
+            attach(&self.mixer, channel, samples, false);
             return;
         }
         let decoder = self.decoder.get_or_insert_with(|| {
@@ -440,18 +456,13 @@ impl Backend for MixerBackend {
                             }
                             samples
                         });
-                        attach(&mixer, job.channel, samples, job.looping);
+                        attach(&mixer, job.channel, samples, false);
                     }
                 })
                 .expect("sound decoder thread");
             send
         });
-        let _ = decoder.send(Decode {
-            key,
-            file,
-            channel,
-            looping,
-        });
+        let _ = decoder.send(Decode { key, file, channel });
     }
     /// `alSourceStop`: any state becomes stopped, an initial source too (a
     /// sound still decoding then never starts).
@@ -848,6 +859,9 @@ impl Audio {
     pub fn with_device(root: &Path, device_name: &str) -> Self {
         Self::with_output(root, true, device_name)
     }
+    pub fn with_registry(root: &Path, registry: SoundRegistry, device_name: &str) -> Self {
+        Self::with_loaded_registry(root, registry, true, device_name)
+    }
     /// No output device: the dedicated server.
     pub fn silent(root: &Path) -> Self {
         Self::with_output(root, false, "")
@@ -859,6 +873,14 @@ impl Audio {
     }
     fn with_output(root: &Path, output: bool, target_device: &str) -> Self {
         let registry = SoundRegistry::load(root);
+        Self::with_loaded_registry(root, registry, output, target_device)
+    }
+    fn with_loaded_registry(
+        root: &Path,
+        registry: SoundRegistry,
+        output: bool,
+        target_device: &str,
+    ) -> Self {
         if output && registry.is_empty() {
             // The game then plays nothing on a working output (#1035, #1076).
             log::warn!(
@@ -885,17 +907,6 @@ impl Audio {
         };
         let mut engine = SoundEngine::new(registry);
         engine.loaded = live;
-        #[cfg(feature = "audio")]
-        let cards = if live { card_fingerprint() } else { None };
-        // Where the cards gate the list (Linux, macOS), it starts empty: opening the
-        // output does not need it, and listing it probes every device; the first
-        // change fills it. Elsewhere it starts with every device listed, as before.
-        #[cfg(feature = "audio")]
-        let devices = if live && cards.is_none() {
-            output_devices()
-        } else {
-            Vec::new()
-        };
         Self {
             _stream: stream,
             device_name: target_device.to_owned(),
@@ -922,13 +933,15 @@ impl Audio {
             stopped: Default::default(),
             preview: Default::default(),
             #[cfg(feature = "audio")]
-            default_seen: if live { default_output_name() } else { None },
+            default_seen: None,
             #[cfg(feature = "audio")]
-            cards_seen: cards,
+            cards_seen: None,
             #[cfg(feature = "audio")]
-            devices_seen: devices,
+            devices_seen: Vec::new(),
             #[cfg(feature = "audio")]
-            device_ticks: 0,
+            device_probe_started: std::time::Instant::now(),
+            #[cfg(feature = "audio")]
+            device_probe: None,
         }
     }
     #[cfg(not(feature = "audio"))]
@@ -1088,7 +1101,9 @@ impl Audio {
             #[cfg(feature = "audio")]
             devices_seen: self.devices_seen.clone(),
             #[cfg(feature = "audio")]
-            device_ticks: 0,
+            device_probe_started: std::time::Instant::now(),
+            #[cfg(feature = "audio")]
+            device_probe: None,
         }
     }
     /// Sync the volume options, refreshing the categories that changed
@@ -1107,10 +1122,39 @@ impl Audio {
         }
         self.engine.listening = self.record_heard;
     }
+    /// Start one device query without ever making the audio/render thread wait
+    /// for CPAL or the operating system. At most one query is alive per `Audio`.
+    #[cfg(feature = "audio")]
+    fn start_device_probe(&self) -> Option<std::sync::mpsc::Receiver<DeviceProbe>> {
+        let previous_default = self.default_seen.clone();
+        let previous_cards = self.cards_seen.clone();
+        let previous_devices = self.devices_seen.clone();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        match std::thread::Builder::new()
+            .name("Audio device probe".into())
+            .spawn(move || {
+                let default = default_output_name();
+                let cards = card_fingerprint();
+                let devices = if default == previous_default
+                    && !cards_changed(previous_cards.as_deref(), cards.as_deref())
+                {
+                    previous_devices
+                } else {
+                    output_devices()
+                };
+                let _ = sender.send((default, cards, devices));
+            }) {
+            Ok(_) => Some(receiver),
+            Err(error) => {
+                log::warn!("Horizon: could not start the audio device probe: {error}");
+                None
+            }
+        }
+    }
     /// `SoundEngine.shouldChangeDevice`: the open device was lost, the system
     /// default changed (with no device chosen in the options), or the chosen
-    /// device came back; the output is then opened again. The devices are looked
-    /// at once a second.
+    /// device came back; the output is then opened again. Device discovery runs
+    /// off-thread once a second; this function only polls its completed result.
     #[cfg(feature = "audio")]
     fn should_change_device(&mut self) -> bool {
         // A splitscreen share plays through the first player's output: it leaves the device,
@@ -1124,48 +1168,52 @@ impl Audio {
         };
         if lost {
             log::info!("Horizon: audio device was lost");
-            self.default_seen = default_output_name();
-            self.cards_seen = card_fingerprint();
-            self.devices_seen = output_devices();
+            self.default_seen = None;
+            self.devices_seen.clear();
+            self.device_probe_started = std::time::Instant::now();
             return true;
         }
-        self.device_ticks += 1;
-        if self._stream.is_none() || self.device_ticks < 20 {
-            return false;
-        }
-        self.device_ticks = 0;
-        let default = default_output_name();
-        let cards = card_fingerprint();
-        // Listing the devices probes every one (on Linux every built-in PCM,
-        // printing ALSA's errors for the plugins this system lacks; on macOS
-        // every Core Audio device, about 90 ms with twenty of them); only the
-        // fingerprint's devices can change the list, and it is cheap.
-        if default == self.default_seen
-            && !cards_changed(self.cards_seen.as_deref(), cards.as_deref())
-        {
-            return false;
-        }
-        self.cards_seen = cards;
-        let devices = output_devices();
-        // Only a change in the device lists is looked at, as in vanilla: a
-        // preferred device that is listed but cannot open is not retried.
-        if default == self.default_seen && devices == self.devices_seen {
-            return false;
-        }
-        self.default_seen = default.clone();
-        let wanted = self.device_name.clone();
-        let available = devices.contains(&wanted);
-        self.devices_seen = devices;
-        if wanted.is_empty() {
-            let changed = default.as_deref().is_some_and(|d| d != current);
-            if changed {
-                log::info!("Horizon: system default audio device has changed");
+        let mut found = None;
+        if let Some(result) = self.device_probe.as_ref().map(|probe| probe.try_recv()) {
+            match result {
+                Ok(value) => {
+                    found = Some(value);
+                    self.device_probe = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.device_probe = None,
             }
-            return changed;
         }
-        let changed = current != wanted && available;
-        if changed {
-            log::info!("Horizon: preferred audio device has become available");
+        let mut changed = false;
+        if let Some((default, cards, devices)) = found {
+            self.cards_seen = cards;
+            if default != self.default_seen || devices != self.devices_seen {
+                // Only a change in the device lists is looked at, as in vanilla: a
+                // preferred device that is listed but cannot open is not retried.
+                self.default_seen = default.clone();
+                let wanted = self.device_name.clone();
+                let available = devices.contains(&wanted);
+                self.devices_seen = devices;
+                if wanted.is_empty() {
+                    changed = default.as_deref().is_some_and(|d| d != current);
+                    if changed {
+                        log::info!("Horizon: system default audio device has changed");
+                    }
+                } else {
+                    changed = current != wanted && available;
+                    if changed {
+                        log::info!("Horizon: preferred audio device has become available");
+                    }
+                }
+            }
+        }
+        #[cfg(not(target_os = "android"))]
+        if self._stream.is_some()
+            && self.device_probe.is_none()
+            && self.device_probe_started.elapsed() >= std::time::Duration::from_secs(1)
+        {
+            self.device_probe_started = std::time::Instant::now();
+            self.device_probe = self.start_device_probe();
         }
         changed
     }
@@ -1185,15 +1233,6 @@ impl Audio {
         self.sync_volumes();
         self.engine.tick(paused, ctx, &mut self.backend);
     }
-    /// The `uiSoundReserve` extra: positional sounds leave
-    /// `sound_engine::HEARD_RESERVE` static channels free (off: vanilla's pool).
-    pub fn set_listener_reserve(&mut self, on: bool) {
-        self.engine.listener_reserve = if on {
-            crate::sound_engine::HEARD_RESERVE
-        } else {
-            0
-        };
-    }
     /// `SoundManager.pauseAllExcept(MUSIC, UI)`.
     pub fn pause(&mut self) {
         self.engine.pause_all_except(
@@ -1212,13 +1251,8 @@ impl Audio {
     /// `SoundManager.reload` (resource packs changed): stop every sound, then
     /// read sound events and sound files from the new resource root.
     pub fn reload(&mut self, root: &Path) {
-        self.reload_with(root, SoundRegistry::load(root));
-    }
-    /// [`Self::reload`] with the root's sound events already read
-    /// (`SoundRegistry::load`, which a pack reload runs off the render thread).
-    pub fn reload_with(&mut self, root: &Path, registry: SoundRegistry) {
         self.stop_all();
-        self.engine.registry = registry;
+        self.engine.registry = SoundRegistry::load(root);
         self.backend.root = root.to_owned();
         let mut cache = self.backend.cache.lock().unwrap();
         cache.entries.clear();
@@ -1838,6 +1872,23 @@ mod tests {
         let mut data = [0.0; 2];
         mix(&mut m, &mut data, 1, 48_000);
         assert_eq!(data, [0.5; 2]);
+    }
+    #[cfg(feature = "audio")]
+    #[test]
+    fn pending_device_discovery_does_not_block_tick() {
+        let mut audio = Audio::silent(Path::new("missing-audio-test-resources"));
+        audio.backend.mixer.lock().unwrap().device_name = "primary".into();
+        audio.default_seen = Some("primary".into());
+        audio.devices_seen = vec!["primary".into()];
+        let (tx, rx) = std::sync::mpsc::channel();
+        audio.device_probe = Some(rx);
+        assert!(!audio.should_change_device());
+        assert!(audio.device_probe.is_some());
+        tx.send((Some("headphones".into()), None, vec!["headphones".into()]))
+            .unwrap();
+        assert!(audio.should_change_device());
+        assert!(audio.device_probe.is_none());
+        assert_eq!(audio.default_seen.as_deref(), Some("headphones"));
     }
 
     #[test]

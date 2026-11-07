@@ -515,23 +515,15 @@ fn size(bytes: u64) -> String {
 }
 
 /// `restore NAME [--yes]`: the backup's world in place of the current one (moved aside, not deleted). A
-/// running server restarts with it. With a dimension, only that one comes back and the rest of the world stays.
-pub fn restore(dir: &Path, name: &str, dimension: Option<&str>, yes: bool) -> Result<(), String> {
+/// running server restarts with it.
+pub fn restore(dir: &Path, name: &str, yes: bool) -> Result<(), String> {
     let name = backup::find(dir, name)?;
-    let dimension = dimension
-        .map(backup::dimension_folder)
-        .transpose()?
-        .map(|d| d.0);
-    let what = match &dimension {
-        Some(d) => format!("the dimension {d} with {name}'s"),
-        None => format!("the world with {name}"),
-    };
     if !yes {
         if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
             return Err("restore replaces the world: pass --yes to confirm".into());
         }
         print!(
-            "Replace {what}? What it replaces is kept in {}/. [y/N] ",
+            "Replace the world with {name}? The current world is kept in {}/. [y/N] ",
             backup::DIR
         );
         let _ = std::io::Write::flush(&mut std::io::stdout());
@@ -544,11 +536,7 @@ pub fn restore(dir: &Path, name: &str, dimension: Option<&str>, yes: bool) -> Re
     }
     if let Some(client) = Client::open(dir)? {
         let before = client.call("GET", "/api/v1/status", None)?["engine_pid"].as_u64();
-        client.call(
-            "POST",
-            "/api/v1/restore",
-            Some(&json!({ "name": name, "dimension": dimension })),
-        )?;
+        client.call("POST", "/api/v1/restore", Some(&json!({ "name": name })))?;
         print!("Restoring {name}: restarting the game with it");
         wait_running(&client, before)?;
         println!(
@@ -558,11 +546,7 @@ pub fn restore(dir: &Path, name: &str, dimension: Option<&str>, yes: bool) -> Re
     }
     let _lock = supervisor::lock(dir)?;
     let config = crate::config::Config::load(dir)?;
-    let done = match &dimension {
-        Some(d) => backup::restore_dimension(dir, &config, &name, d)?,
-        None => backup::restore(dir, &config, &name)?,
-    };
-    match done {
+    match backup::restore(dir, &config, &name)? {
         Some(old) => println!(
             "Restored {name}; the world it replaced is in {}",
             old.display()

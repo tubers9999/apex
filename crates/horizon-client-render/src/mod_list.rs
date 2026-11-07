@@ -10,6 +10,30 @@ use std::{
 };
 
 pub const FILE: &str = "horizon-mods.txt";
+/// Fixed native modules compiled into Android APKs, all opt-in.
+pub const ANDROID_BUNDLED: [(&str, &str, &str); 4] = [
+    (
+        "zoom",
+        "Zoom",
+        "Hold Z to zoom; configurable in Options > Mods",
+    ),
+    (
+        "minimap",
+        "Minimap",
+        "A configurable map in the screen corner",
+    ),
+    (
+        "recipes",
+        "Recipes",
+        "Item recipes and uses beside the inventory",
+    ),
+    (
+        "smartf3",
+        "SmartF3",
+        "Configurable modules for the F3 debug screen",
+    ),
+];
+
 /// The folder holding `.hmod` files, beside `options.txt`.
 pub const DIR: &str = "horizon-mods";
 /// Where the launcher installs native mods (`<id>.hnmod`), beside [`DIR`]. They run only in a
@@ -41,8 +65,11 @@ pub struct Installed {
     pub description: String,
     /// Why it is not running, when it failed.
     pub problem: Option<String>,
-    /// Loaded with `--dev-mod`: always on.
+    /// Loaded with `--dev-mod`: always on, reloaded when rebuilt.
     pub dev: bool,
+    /// The running mod set a page of widgets (capability `ui`): its row
+    /// gains a Settings button.
+    pub has_settings: bool,
     /// A native mod (`game/native_hooks.rs`): built into the game, on until
     /// the player turns it off, and its settings page.
     pub native: Option<NativePage>,
@@ -59,9 +86,7 @@ pub struct NativePage {
 
 impl ModList {
     pub fn load(dir: &Path) -> Self {
-        fs::read_to_string(dir.join(FILE))
-            .map(|t| Self::parse(&t))
-            .unwrap_or_default()
+        Self::parse(&fs::read_to_string(dir.join(FILE)).unwrap_or_default())
     }
     pub fn parse(text: &str) -> Self {
         let ids = |value: &str| -> BTreeSet<String> {
@@ -73,6 +98,16 @@ impl ModList {
                 .collect()
         };
         let (enabled, disabled) = (ids("true"), ids("false"));
+        #[cfg(target_os = "android")]
+        let disabled = {
+            let mut disabled = disabled;
+            for (id, _, _) in ANDROID_BUNDLED {
+                if !enabled.contains(id) {
+                    disabled.insert(id.to_owned());
+                }
+            }
+            disabled
+        };
         let mut keys: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
         for (k, v) in text.lines().filter_map(|l| l.split_once(':')) {
             // Mod ids have no dots; a key's name may.
@@ -180,6 +215,7 @@ mod tests {
             description: String::new(),
             problem: None,
             dev,
+            has_settings: false,
             native: None,
         };
         let mut list = ModList {

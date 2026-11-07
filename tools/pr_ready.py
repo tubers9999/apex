@@ -70,13 +70,10 @@ ln -sfn "$state/parity-runner" .local/parity-runner && ln -sfn "$state/parity-ta
 }
 ROOT_RUST = {"Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "rustfmt.toml", "clippy.toml"}
 LAUNCHER_FEATURES = """export features=""
-if [ "$(uname)" = Darwin ] && ! xcrun metal --version > /dev/null 2>&1; then features="--features gpui_platform/runtime_shaders"; fi
+if [ "$(uname)" = Darwin ] && ! xcrun metal --version > /dev/null 2>&1; then features="--features gpui/runtime_shaders"; fi
 in_shell() { if [ "$(uname)" = Linux ] && ! pkg-config --exists xkbcommon 2>/dev/null && command -v nix-shell > /dev/null; then
   nix-shell shell.nix --run "$1"; else bash -c "$1"; fi; }"""
 
-
-# Build-script inputs outside the crates: catalog-only edits still need to build and test their consumers.
-MOD_API_INPUTS = ("native-hooks.json", "tools/native-hook-fragments/")
 
 def is_doc(path):
     return path.endswith(".md")
@@ -84,8 +81,7 @@ def is_doc(path):
 
 def workspace_rust(path):
     """Whether a change to path is built by the main Cargo workspace."""
-    return not is_doc(path) and (path.startswith(("crates/", "xtask/", ".cargo/", *MOD_API_INPUTS))
-                                 or path in ROOT_RUST)
+    return not is_doc(path) and (path.startswith(("crates/", "xtask/", ".cargo/")) or path in ROOT_RUST)
 
 
 def launcher_rust(path):
@@ -100,16 +96,6 @@ def touched_crates(paths, packages):
     crates = set()
     for path in paths:
         if is_doc(path):
-            continue
-        if path.startswith(MOD_API_INPUTS):
-            crates.update({"horizon-client", "horizon-client-render", "horizon-mod-api-gen"})
-            continue
-        if "horizon-client-lib" in packages and path.startswith("crates/horizon-client/"):
-            relative = path.removeprefix("crates/horizon-client/")
-            gameplay = relative in {"Cargo.toml", "build.rs", "windows-segment-heap.manifest",
-                                    "src/lib.rs", "src/main.rs", "src/entry.rs", "src/game.rs", "tests/launch_api.rs"} \
-                or relative.startswith("src/game/")
-            crates.add("horizon-client" if gameplay else "horizon-client-lib")
             continue
         owners = [name for name, directory in packages.items() if path.startswith(directory.rstrip("/") + "/")]
         if owners:
@@ -284,10 +270,11 @@ def parity_summary(output):
     return text
 
 
-# CI's verify job (.github/workflows/ci.yml): clippy over the whole workspace, and over the server build (the game
-# without sound or controllers).
-CI_CLIPPY = "cargo clippy --workspace --all-targets --locked -- -D warnings"
+# CI's verify job (.github/workflows/ci.yml): clippy over the whole workspace with the game's code mods, and over the
+# server build (the game without sound or controllers); tests with code mods and mod packaging.
+CI_CLIPPY = "cargo clippy --workspace --all-targets --locked --features horizon-client/mods -- -D warnings"
 CI_CLIPPY_SERVER = "cargo clippy -p horizon-client --all-targets --locked --no-default-features -- -D warnings"
+CI_TEST_FEATURES = "horizon-client/mods,horizon-mods/pack"
 
 
 # CI installs the current stable each run (rustup toolchain install stable), and Rust ships one every six weeks
@@ -333,16 +320,24 @@ def mark_old_rust(steps, warning):
 
 
 def mod_features(crates):
-    """The features CI's workspace-wide test run gives these crates. Cargo unifies features over the packages it
-    builds, so a crate tested alone needs the ones the workspace would have turned on for it: horizon-mods' index."""
-    return " --features horizon-mods/index" if crates is not None and "horizon-mods" in crates else ""
+    """The features CI's workspace-wide test run gives these crates (code mods are off by default: docs/mods.md).
+    Cargo unifies features over the packages it builds, so a crate tested alone needs the ones the workspace would
+    have turned on for it: horizon-client's code mods, and horizon-mods' runtime, packaging and index."""
+    if crates is None:
+        return f" --features {CI_TEST_FEATURES}"
+    features = []
+    if "horizon-mods" in crates:
+        features += ["horizon-mods/runtime", "horizon-mods/pack", "horizon-mods/index"]
+    if "horizon-client" in crates:
+        features.append("horizon-client/mods")
+    return f" --features {','.join(features)}" if features else ""
 
 
 # What horizon-client's full content-root tests load (mod_content_tests.rs). They take minutes on prepared data, so
 # they are #[ignore]d and run here only when one of these changes.
 CONTENT_ROOT = ("crates/horizon-client/src/mod_content", "crates/horizon-client-render/src/assets.rs", "crates/horizon-items/",
                 "crates/horizon-mods/", "crates/horizon-assets/")
-CONTENT_ROOT_TESTS = "cargo test --locked -p horizon-client-lib --lib mod_content::tests:: -- --ignored"
+CONTENT_ROOT_TESTS = "cargo test --locked -p horizon-client --features horizon-client/mods --lib mod_content::tests:: -- --ignored"
 
 
 def plan(args, base, changed, crates_of, libraries, dependencies):

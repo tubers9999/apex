@@ -118,7 +118,6 @@ mod tests {
                 layer: 0,
                 opaque: true,
                 translucent: false,
-                fusion: None,
                 quad: ModelQuad {
                     positions: [
                         [0.0, 0.5, 0.0],
@@ -136,11 +135,6 @@ mod tests {
                     tint_index: -1,
                     shade_direction_override: None,
                     light_emission: 0,
-                    light: [0; 2],
-                    color: None,
-                    ambient_occlusion: None,
-                    render_type: None,
-                    shade: true,
                 },
             }],
         }

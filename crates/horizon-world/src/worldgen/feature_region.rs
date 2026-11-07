@@ -21,11 +21,14 @@ use horizon_core::{
         WorldGenTickContainers,
     },
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    sync::Arc,
+};
 
 struct RegionBlockQueries {
     fluids: super::fluid_predicate::FluidPredicateBindings,
-    tags: Arc<super::block_feature::BoundTags>,
+    tags: Arc<BTreeMap<String, Arc<BTreeSet<BlockStateId>>>>,
 }
 
 #[derive(Debug)]

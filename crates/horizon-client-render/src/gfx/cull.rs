@@ -188,6 +188,9 @@ impl Cull {
     /// with the instance counts the GPU wrote, with fragment shaders that
     /// write storage.
     pub fn supported(adapter: &wgpu::Adapter, device: &wgpu::Device) -> Option<DepthTest> {
+        if cfg!(target_os = "android") {
+            return None;
+        }
         let depth_test = match adapter.get_info().backend {
             wgpu::Backend::Vulkan
                 if device
@@ -366,10 +369,10 @@ impl Cull {
             let mapped = r.buffer.slice(..r.slots.len() as u64 * 4);
             if let Ok(data) = mapped.get_mapped_range() {
                 // The mapping isn't guaranteed to be 4-byte aligned (a Vega 11
-                // on Windows panicked in cast_slice), so copy the words out.
-                let results: Vec<u32> = bytemuck::pod_collect_to_vec(&data);
+                // on Windows panicked in cast_slice), so decode without casting.
+                let results = readback_words(&data);
                 let (mut hidden, mut indices) = (0, 0u64);
-                for (&result, &n) in results.iter().zip(&r.indices) {
+                for (result, &n) in results.clone().zip(&r.indices) {
                     if result != r.stamp {
                         hidden += 1;
                         indices += u64::from(n);
@@ -377,7 +380,7 @@ impl Cull {
                 }
                 let share = indices as f32 / r.total.max(1) as f32;
                 self.hidden = ([hidden, results.len()], share);
-                for (&slot, &result) in r.slots.iter().zip(&results) {
+                for (&slot, result) in r.slots.iter().zip(results) {
                     let slot = slot as usize;
                     if slot >= self.seen.len() {
                         self.seen.resize(slot + 1, false);
@@ -528,11 +531,7 @@ impl Cull {
 
     /// Between the phases (`InShader`): draw the tested boxes in a pass of
     /// their own that reads phase 1's depth, bound by `bind_depth`.
-    pub fn test_pass(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        timing: Option<&mut super::pack_timing::PassTiming>,
-    ) {
+    pub fn test_pass(&self, encoder: &mut wgpu::CommandEncoder) {
         let (Some(Group { group, .. }), Some(DepthGroup { view, group: depth })) =
             (&self.group, &self.depth_group)
         else {
@@ -543,7 +542,6 @@ impl Cull {
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Section culling"),
-            timestamp_writes: timing.and_then(|t| t.writes("Occlusion test")),
             color_attachments: &[],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view,
@@ -585,25 +583,23 @@ impl Cull {
         self.current = Some(self.next);
     }
 
-    /// The frame's results to read back, started by calling it right after the frame's
-    /// submission (on the submit thread, when the frame goes there).
-    pub fn submitted(&mut self) -> Option<impl FnOnce() + Send + 'static> {
-        let i = self.current.take()?;
+    /// After the frame's submission: start reading its results back.
+    pub fn submitted(&mut self) {
+        let Some(i) = self.current.take() else {
+            return;
+        };
         let r = &self.readbacks[i];
         let state = r.state.clone();
         state.store(PENDING, Ordering::Release);
-        let (buffer, bytes) = (r.buffer.clone(), r.slots.len() as u64 * 4);
+        r.buffer
+            .slice(..r.slots.len() as u64 * 4)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                state.store(
+                    if result.is_ok() { MAPPED } else { FREE },
+                    Ordering::Release,
+                );
+            });
         self.next = (i + 1) % READBACKS;
-        Some(move || {
-            buffer
-                .slice(..bytes)
-                .map_async(wgpu::MapMode::Read, move |result| {
-                    state.store(
-                        if result.is_ok() { MAPPED } else { FREE },
-                        Ordering::Release,
-                    );
-                });
-        })
     }
 
     fn make_group(
@@ -645,6 +641,14 @@ impl Cull {
     }
 }
 
+/// Mapped memory may be unaligned. Decode words directly without allocating
+/// and copying the whole readback. Cloning this iterator only copies a slice.
+fn readback_words(bytes: &[u8]) -> impl ExactSizeIterator<Item = u32> + Clone {
+    bytes
+        .chunks_exact(4)
+        .map(|b| u32::from_ne_bytes([b[0], b[1], b[2], b[3]]))
+}
+
 /// The test's shader for `depth_test`.
 fn source(depth_test: DepthTest) -> String {
     let common = include_str!("cull.wgsl");
@@ -657,6 +661,20 @@ fn source(depth_test: DepthTest) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn readback_handles_unaligned_memory_and_repeat_scans() {
+        let words = [0u32, 1, u32::MAX, 123456789];
+        let mut bytes = vec![0xAA];
+        for word in words {
+            bytes.extend(word.to_ne_bytes());
+        }
+        let results = readback_words(&bytes[1..]);
+        assert_eq!(results.len(), words.len());
+        assert_eq!(results.clone().collect::<Vec<_>>(), words);
+        assert_eq!(results.collect::<Vec<_>>(), words);
+        assert_eq!(readback_words(&[]).len(), 0);
+    }
 
     #[test]
     fn shaders_validate() {

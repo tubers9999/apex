@@ -91,30 +91,31 @@ impl RandomTickSections {
     ) -> Sections {
         Self::refresh(&mut self.chunks, key, chunk, &mut random).sections
     }
-    /// The lowest ticking section of `chunk` ([`Self::get`]) from block
-    /// `from_y` up: its minimum Y and its mask of the blocks a random tick can
-    /// do anything for (`candidate`: `Behaviours::random_tick_candidate`),
-    /// built at the section's first tick and kept until it changes. Only the
-    /// section asked for is built and shared.
-    pub fn next_masked(
+    /// The ticking sections of `chunk` ([`Self::get`]) into `out`, bottom up:
+    /// each one's minimum Y and its mask of the blocks a random tick can do
+    /// anything for (`candidate`: `Behaviours::random_tick_candidate`), built
+    /// at the section's first tick and kept until it changes.
+    pub fn masked(
         &mut self,
         key: (i32, i32),
         chunk: &Arc<Chunk>,
         facts: &BlockFacts,
-        candidate: impl FnMut(u32) -> bool,
-        from_y: i32,
-    ) -> Option<(i32, Arc<RandomTickMask>)> {
+        mut candidate: impl FnMut(u32) -> bool,
+        out: &mut Vec<(i32, Arc<RandomTickMask>)>,
+    ) {
+        out.clear();
         let cached = Self::refresh(&mut self.chunks, key, chunk, &mut |id| {
             facts.get(BlockStateId(id)).random_ticks
         });
-        let y = cached.sections.from(from_y)?;
-        let index = ((y - cached.sections.base) >> 4) as usize;
-        let mask = cached.masks[index].get_or_insert_with(|| {
-            let mut blocks = [0u32; 4096];
-            chunk.sections[index].blocks.unpack(&mut blocks);
-            Arc::new(RandomTickMask::of(&blocks, candidate))
-        });
-        Some((y, mask.clone()))
+        for y in cached.sections {
+            let index = ((y - cached.sections.base) >> 4) as usize;
+            let mask = cached.masks[index].get_or_insert_with(|| {
+                let mut blocks = [0u32; 4096];
+                chunk.sections[index].blocks.unpack(&mut blocks);
+                Arc::new(RandomTickMask::of(&blocks, &mut candidate))
+            });
+            out.push((y, mask.clone()));
+        }
     }
     fn refresh<'a>(
         chunks: &'a mut FxHashMap<(i32, i32), Cached>,
@@ -477,20 +478,27 @@ mod tick_parity {
                 };
                 behaviours.tick_chunk_random(&mut cached, &mut b, ChunkPos::new(x, z), memoized);
             }
+            let mut sections = Vec::new();
             for (x, z) in lit(&masked) {
+                let mut read = None;
                 let next = |level: &mut Level, from| {
-                    // Read at every ask, so an edit of the chunk reads its
-                    // section again.
+                    // An edit of the chunk reads its masks again (the game
+                    // asks again after any write: the world's revision).
                     let now = level.chunks[&(x, z)].clone();
-                    mask_cache
-                        .next_masked(
+                    if read.as_ref().is_none_or(|r| !Arc::ptr_eq(r, &now)) {
+                        mask_cache.masked(
                             (x, z),
                             &now,
                             &facts,
                             |id| behaviours.random_tick_candidate(BlockStateId(id)),
-                            from,
-                        )
-                        .map(|(y, mask)| (y, Some(mask)))
+                            &mut sections,
+                        );
+                        read = Some(now);
+                    }
+                    sections
+                        .iter()
+                        .find(|(y, _)| *y >= from)
+                        .map(|(y, mask)| (*y, Some(mask.clone())))
                 };
                 behaviours.tick_chunk_random_masked(&mut masked, &mut c, ChunkPos::new(x, z), next);
             }

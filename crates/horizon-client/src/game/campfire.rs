@@ -48,10 +48,9 @@ impl Game<'_> {
             _ => false,
         };
         if placed {
-            self.native_campfire_start(pos, &held.item);
             // ItemStack.consumeAndReturn: creative keeps the item.
             self.consume_held();
-            self.award_custom_stat("interact_with_campfire", 1);
+            self.stats.custom("interact_with_campfire", 1);
             self.post_block_game_event(
                 "minecraft:block_change",
                 pos,
@@ -103,7 +102,6 @@ impl Game<'_> {
                 .recipes()
                 .cook(KIND, &item)
                 .map_or_else(|| item.clone(), |r| r.result.clone());
-            self.native_block_cook([pos.0, pos.1, pos.2], &item.item, &result.item);
             self.campfire_drop(pos, result);
             self.mark_block_entity_updated(pos);
             self.post_block_game_event(
@@ -173,7 +171,7 @@ impl Game<'_> {
 
     /// `Containers.dropItemStack(level, x, y, z, stack)` at the block's
     /// integer position.
-    pub(super) fn campfire_drop(&mut self, pos: Pos, stack: ItemStack) {
+    fn campfire_drop(&mut self, pos: Pos, stack: ItemStack) {
         let at = BlockPos::new(pos.0, pos.1, pos.2);
         for piece in
             horizon_world::level::removal::drop_item_stack(&mut self.world.random, at, stack.count)

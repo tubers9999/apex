@@ -23,9 +23,8 @@ pub struct Illusions {
     pub offsets: [[[f64; 3]; COPIES]; 2],
 }
 
-// `IllagerSpell` ids: DISAPPEAR (the mirror spell) 4, BLINDNESS 5.
-pub const MIRROR: u8 = 4;
-pub const BLINDNESS_SPELL: u8 = 5;
+pub const MIRROR: u8 = 5;
+pub const BLINDNESS_SPELL: u8 = 4;
 
 pub fn register(m: &mut Mob) {
     let g = &mut m.ai.goals;

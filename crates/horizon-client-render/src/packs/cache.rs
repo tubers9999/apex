@@ -12,8 +12,7 @@ use std::{collections::BTreeSet, fs, io, path::Path, path::PathBuf};
 // Version 3 could omit untouched vanilla directories on Windows (#1649, #1688).
 // Version 5 read every vanilla file to stamp it on Windows.
 // Version 6 stamps vanilla's files by their metadata on Windows too.
-// Version 7 stacks blockstate files (every pack's definition, bottom first).
-const VERSION: u32 = 7;
+const VERSION: u32 = 6;
 
 #[derive(Default, Serialize, Deserialize)]
 pub(super) struct Dependencies {
@@ -309,7 +308,7 @@ pub(super) fn build(vanilla: &Path, packs: &[Pack], out: &Path) -> io::Result<()
         .create(true)
         .truncate(false)
         .open(lock_path(out))?;
-    lock.lock()?;
+    crate::file_lock::exclusive(&lock)?;
     let vanilla_key = absolute(vanilla)?;
     let marker_path = marker_path(out);
     let signature = pack_signature(packs);
@@ -918,7 +917,7 @@ mod tests {
             .truncate(false)
             .open(lock_path(&out))
             .unwrap();
-        held.lock().unwrap();
+        crate::file_lock::exclusive(&held).unwrap();
         let (started, starts) = mpsc::channel();
         let (done, finishes) = mpsc::channel();
         std::thread::scope(|scope| {

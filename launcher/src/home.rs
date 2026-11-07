@@ -37,7 +37,6 @@ impl Launcher {
             what.push(format!(
                 "Horizon {}",
                 horizon_launcher::nightly::label(tag)
-                    .or_else(|| horizon_launcher::build_import::label(tag))
                     .unwrap_or_else(|| tag.trim_start_matches('v').to_string())
             ));
         }
@@ -183,7 +182,7 @@ impl Launcher {
                             .child(tr("Got it"))
                             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.settings.ping_notice_seen = true;
-                                this.save_settings();
+                                this.settings.save();
                                 cx.notify();
                             })),
                     ),
@@ -307,7 +306,7 @@ impl Launcher {
             .flex_none()
             .flex_col()
             .gap(px(8.))
-            .w(px(360.))
+            .w(px(320.))
             .p(px(20.));
         if let Some(line) = summary {
             card = card
@@ -318,7 +317,6 @@ impl Launcher {
                         .font_weight(FontWeight::BOLD)
                         .child(
                             horizon_launcher::nightly::label(tag)
-                                .or_else(|| horizon_launcher::build_import::label(tag))
                                 .unwrap_or_else(|| tag.trim_start_matches('v').to_string()),
                         ),
                 )

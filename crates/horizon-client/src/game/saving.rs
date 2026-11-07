@@ -71,10 +71,9 @@ impl Game<'_> {
             });
         } else {
             self.close_container();
-            self.award_custom_stat("leave_game", 1);
+            self.stats.custom("leave_game", 1);
             self.lan_close(false);
             self.free_player_beds()?;
-            self.streaming.abort_generation();
             self.pending_save = Some(ClosingSave {
                 quit,
                 close: true,
@@ -136,7 +135,9 @@ impl Game<'_> {
                     // Drop/join only after completion; leave_server's teardown
                     // can then run without blocking on the server's writes.
                     if save.quit {
-                        self.integrated.take().unwrap().stop()?;
+                        if let Some(server) = self.integrated.take() {
+                            server.stop()?;
+                        }
                     } else {
                         self.leave_server(None)?;
                     }
@@ -187,17 +188,13 @@ impl Game<'_> {
                     if keys.is_empty() {
                         self.prune_entity_memory();
                         self.save_raids();
-                        self.save.save_attachments(&self.world.attachments)?;
                         self.save.save_forced_chunks(&self.streaming.forced)?;
                         self.save_game_metadata()?;
                         save.stage = Stage::Writes;
                     }
                     Ok(false)
                 }
-                Stage::Writes => {
-                    let players = self.finish_player_autosaves(false)?;
-                    Ok(self.save.writes_finished()? && players)
-                }
+                Stage::Writes => self.save.writes_finished(),
             }
         })();
         match result {

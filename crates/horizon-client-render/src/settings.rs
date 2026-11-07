@@ -144,9 +144,6 @@ pub struct Settings {
     pub discrete_scroll: bool,
     pub toggle_crouch: bool,
     pub toggle_sprint: bool,
-    /// 3D skin layers (`threeDSkinLayers`): each painted texel of a player's
-    /// outer layer drawn as a slab (`crate::...`, Options → Skin).
-    pub three_d_skin_layers: bool,
     pub auto_jump: bool,
     pub language: String,
     pub force_unicode: bool,
@@ -198,6 +195,8 @@ pub struct Settings {
     pub video_modes: Vec<crate::window::VideoMode>,
     /// Controller settings (`horizon-controller.txt`, Horizon's own).
     pub controller: crate::gamepad::PadSettings,
+    pub touch: crate::touch::Settings,
+    pub keypad: crate::keypad::Settings,
     /// Horizon's optional extras (`horizon-extras.txt`), all off by default.
     pub extras: crate::extras::Extras,
     /// The Horizon mods turned on (`horizon-mods.txt`), all off by default.
@@ -251,7 +250,6 @@ impl Default for Settings {
             allow_cursor_changes: true,
             toggle_crouch: false,
             toggle_sprint: false,
-            three_d_skin_layers: false,
             auto_jump: false,
             language: "en_us".into(),
             force_unicode: false,
@@ -288,6 +286,8 @@ impl Default for Settings {
             startup_api: Default::default(),
             video_modes: Vec::new(),
             controller: Default::default(),
+            touch: Default::default(),
+            keypad: Default::default(),
             extras: Default::default(),
             mods: Default::default(),
             shader_packs: Vec::new(),
@@ -345,15 +345,18 @@ impl Settings {
             .parent()
             .map(crate::extras::Extras::load)
             .unwrap_or_default();
-        // The enabled mods are the game folder's, shared by its players (`--player-dir`).
         let mods = path
             .parent()
-            .map(|dir| crate::mod_list::ModList::load(&crate::logging::shared_dir(dir)))
+            .map(crate::mod_list::ModList::load)
             .unwrap_or_default();
+        let keypad = crate::keypad::Settings::load(&path.with_file_name("horizon-keypad.json"));
+        let touch = crate::touch::Settings::load_from(&path.with_file_name("horizon-touch.json"));
         let settings = match fs::read(path) {
             Ok(bytes) => Self {
                 horizon,
                 controller,
+                touch,
+                keypad,
                 extras,
                 mods,
                 ..Self::parse(&String::from_utf8_lossy(&bytes))
@@ -361,6 +364,8 @@ impl Settings {
             Err(_) => Self {
                 horizon,
                 controller,
+                touch,
+                keypad,
                 extras,
                 mods,
                 ..Self::default()
@@ -463,7 +468,6 @@ impl Settings {
             allow_cursor_changes: f.bool("allowCursorChanges"),
             toggle_crouch: f.bool("toggleCrouch"),
             toggle_sprint: f.bool("toggleSprint"),
-            three_d_skin_layers: f.bool("threeDSkinLayers"),
             toggle_attack: f.bool("toggleAttack"),
             toggle_use: f.bool("toggleUse"),
             sprint_window: f.int("sprintWindow"),
@@ -474,6 +478,8 @@ impl Settings {
             startup_api: Default::default(),
             video_modes: Vec::new(),
             controller: Default::default(),
+            touch: Default::default(),
+            keypad: Default::default(),
             extras: Default::default(),
             mods: Default::default(),
             shader_packs: Vec::new(),
@@ -575,7 +581,6 @@ impl Settings {
         put_b(&mut f, "allowCursorChanges", self.allow_cursor_changes);
         put_b(&mut f, "toggleCrouch", self.toggle_crouch);
         put_b(&mut f, "toggleSprint", self.toggle_sprint);
-        put_b(&mut f, "threeDSkinLayers", self.three_d_skin_layers);
         put_b(&mut f, "toggleAttack", self.toggle_attack);
         put_b(&mut f, "toggleUse", self.toggle_use);
         put_i(&mut f, "sprintWindow", self.sprint_window);
@@ -638,7 +643,10 @@ impl Settings {
         let mut file = self.to_file();
         file.set_text(key, value)?;
         Ok(Self {
+            keypad: self.keypad.clone(),
             horizon: self.horizon.clone(),
+            #[cfg(target_os = "android")]
+            touch: self.touch.clone(),
             controller: self.controller.clone(),
             extras: self.extras.clone(),
             mods: self.mods.clone(),
@@ -656,8 +664,11 @@ impl Settings {
         if let Some(dir) = path.parent() {
             self.horizon.save(dir);
             self.controller.save(dir);
+            let _ = self.keypad.save(&dir.join("horizon-keypad.json"));
+            #[cfg(target_os = "android")]
+            let _ = self.touch.save_to(&dir.join("horizon-touch.json"));
             self.extras.save(dir);
-            self.mods.save(&crate::logging::shared_dir(dir));
+            self.mods.save(dir);
         }
     }
     /// Volume of a sound source (master excluded).
@@ -727,6 +738,7 @@ pub enum Opt {
     Volume(usize),
     SoundDevice,
     GuiScale,
+    DebugGuiScale,
     ViewBobbing,
     Gamma,
     MaxFps,
@@ -799,6 +811,37 @@ pub enum Opt {
     ForceUnicode,
     JapaneseGlyphs,
     /// Horizon's controller settings (`horizon-controller.txt`).
+    TouchMode,
+    TouchAnalog,
+    TouchCircleSize,
+    TouchAttackSide,
+    TouchHorizontalMargin,
+    TouchVerticalMargin,
+    TouchSensitivity,
+    TouchSensitivityHorizontal,
+    TouchSensitivityVertical,
+    TouchOffhand,
+    TouchShield,
+    TouchButtonScale,
+    TouchInteract,
+    TouchLeftHand,
+    TouchSprintButton,
+    TouchSprintToggle,
+    TouchInventoryControls,
+    TouchMouseSensitivity,
+    TouchCrosshairGestures,
+    TouchControlHub,
+    TouchUiVibration,
+    TouchGameVibration,
+    TouchAttackButtonLook,
+    TouchDynamicJoystick,
+    TouchDynamicAreaX,
+    TouchDynamicAreaY,
+    AndroidGyroscope,
+    AndroidGyroSensitivity,
+    AndroidInputMode,
+    TouchSwapJumpSneak,
+    TouchAutoSprint,
     PadEnabled,
     PadVibration,
     PadAdaptiveTriggers,
@@ -814,8 +857,6 @@ pub enum Opt {
     PadKeyboard,
     /// `options.modelPart.*`: one skin layer (index into `options_file::MODEL_PARTS`).
     ModelPart(usize),
-    /// 3D skin layers: the player's outer layer as extruded slabs.
-    SkinLayers3d,
     MainHand,
     AllowServerListing,
     RealmsNotifications,
