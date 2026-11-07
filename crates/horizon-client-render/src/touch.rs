@@ -204,7 +204,7 @@ pub struct TouchControls {
     passthrough_fingers: BTreeSet<u64>,
     custom_fingers: BTreeMap<u64, String>,
     latched_custom: BTreeSet<String>,
-    latched_controls: u16,
+    pub latched_controls: u16,
     custom_events: Vec<(String, bool)>,
     pending: PadState,
     pub aim: Option<[f32; 2]>,
@@ -554,7 +554,7 @@ impl TouchControls {
         }
         p
     }
-    fn button(c: Control) -> Option<Button> {
+    pub fn button(c: Control) -> Option<Button> {
         Some(match c {
             Control::Sprint => Button::LeftStick,
             Control::Jump => Button::South,
@@ -565,6 +565,12 @@ impl TouchControls {
             Control::Inventory => Button::North,
             _ => return None,
         })
+    }
+    pub fn is_control_held(&self, c: Control) -> bool {
+        Self::button(c).is_some_and(|bt| self.state().held(bt))
+    }
+    pub fn is_control_latched(&self, c: Control) -> bool {
+        (self.latched_controls & (1 << (c as u16))) != 0
     }
     pub fn draw(&self, b: &mut HudBatch, a: &HudAtlas) {
         set_current_hud_opacity_scale(if self.editor.is_some() {

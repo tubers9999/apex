@@ -1540,8 +1540,8 @@ pub fn draw_goy_hud(
         if alpha <= 0.001 {
             continue;
         }
-        let held = crate::touch::TouchControls::button(control).is_some_and(|bt| state.held(bt));
-        let toggled = (tc.latched_controls & (1 << (control as u16))) != 0;
+        let held = tc.is_control_held(control);
+        let toggled = tc.is_control_latched(control);
         let raw_fill = if held {
             p.on_click_color
         } else if toggled {
