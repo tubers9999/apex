@@ -26,19 +26,31 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:extractNativeLibs="true"
         android:requestLegacyExternalStorage="true"
-        android:hasCode="false">
+        android:hasCode="true">
+
+        <!-- Permission gate: this Activity launches first, requests
+             MANAGE_EXTERNAL_STORAGE on Android 11+, then forwards
+             to the NativeActivity game engine. -->
+        <activity
+            android:name="dev.redglitchx.horizon.PermissionActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:screenOrientation="sensorLandscape">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- The actual game engine (pure Rust via NativeActivity) -->
         <activity
             android:name="android.app.NativeActivity"
-            android:exported="true"
+            android:exported="false"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:screenOrientation="sensorLandscape">
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="horizon_client" />
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
     </application>
 </manifest>

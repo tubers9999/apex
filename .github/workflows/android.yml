@@ -55,6 +55,28 @@ jobs:
         run: |
           cargo ndk -t arm64-v8a build --package horizon-client --lib --no-default-features --release
 
+      - name: Compile Java Permission Shim
+        run: |
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+          PLATFORM=$(ls -d $ANDROID_HOME/platforms/* | sort -V | tail -n 1)/android.jar
+          echo "Using Platform JAR: $PLATFORM"
+
+          # Compile PermissionActivity.java
+          mkdir -p build/java
+          javac -source 11 -target 11 \
+            -classpath "$PLATFORM" \
+            -d build/java \
+            packaging/android/java/dev/redglitchx/horizon/PermissionActivity.java
+
+          # Convert to DEX using d8
+          $BUILD_TOOLS/d8 \
+            --output build/ \
+            --min-api 26 \
+            build/java/dev/redglitchx/horizon/PermissionActivity.class
+
+          echo "classes.dex generated:"
+          ls -lh build/classes.dex
+
       - name: Package and Sign APK
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
@@ -67,16 +89,19 @@ jobs:
           # 1. Package resources into base APK
           $BUILD_TOOLS/aapt package -F base.apk -M packaging/android/AndroidManifest.xml -S packaging/android/res -I $PLATFORM -f
 
-          # 2. Add ARM64 native library into lib/arm64-v8a/
+          # 2. Add classes.dex (Java permission shim)
+          zip -u base.apk -j build/classes.dex
+
+          # 3. Add ARM64 native library into lib/arm64-v8a/
           mkdir -p lib/arm64-v8a
           cp target/aarch64-linux-android/release/libhorizon_client.so lib/arm64-v8a/
           $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-unneeded lib/arm64-v8a/libhorizon_client.so || true
           zip -u base.apk lib/arm64-v8a/libhorizon_client.so
 
-          # 3. Zipalign APK
+          # 4. Zipalign APK
           $BUILD_TOOLS/zipalign -v -p 4 base.apk horizon-unaligned.apk
 
-          # 4. Generate debug keystore and sign APK
+          # 5. Generate debug keystore and sign APK
           keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=RedGlitchX,O=RedGlitchX,C=US"
           $BUILD_TOOLS/apksigner sign --ks debug.keystore --ks-pass pass:android --out horizon-android-v0.1-arm64.apk horizon-unaligned.apk
 
@@ -101,11 +126,15 @@ jobs:
           #### 📱 Features:
           - **Full Engine Inclusion:** Complete 3D renderer, world simulation, and game client.
           - **Pojav / Mojo-style Touch Controls:** On-screen virtual D-Pad, Jump, Sneak lock, Attack, Use, Inventory, Chat, Pause, F3, and F5 buttons.
+          - **Runtime Permission Request:** App now properly requests "All Files Access" on Android 11+ before launching.
           - **App Name:** Horizon Android.
           - **Native ARM64:** Built for `aarch64-linux-android` devices.
 
           #### 📥 Installation:
-          Download **horizon-android-v0.1-arm64.apk** below and install it on your Android device.
+          1. Download **horizon-android-v0.1-arm64.apk** below.
+          2. Install on your Android device.
+          3. On first launch, grant "All Files Access" when prompted.
+          4. Resources should be at `/sdcard/games/horizon/resources/`.
           EOF
 
           gh release delete v0.1 -y || true
