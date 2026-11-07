@@ -714,10 +714,11 @@ impl Settings {
         let mut s: Self = std::fs::read(path)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+            .unwrap_or_else(Self::default_goycontrol);
         s.sanitize();
-        if s.control_style == ControlStyle::GoyControl && s.custom_buttons.is_empty() {
+        if s.custom_buttons.is_empty() {
             s.custom_buttons = Self::default_goy_buttons();
+            s.control_style = ControlStyle::GoyControl;
             for c in Control::ALL {
                 s.button_visibility[c as usize] = if c == Control::Move { 1 } else { 2 };
             }

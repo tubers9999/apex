@@ -1595,23 +1595,25 @@ impl TouchUi {
         let dt = self
             .last_anim_tick
             .get()
-            .map(|prev| now.duration_since(prev).as_secs_f32().clamp(0.0, 0.08))
+            .map(|prev| now.duration_since(prev).as_secs_f32().clamp(0.001, 0.08))
             .unwrap_or(0.016);
         self.last_anim_tick.set(Some(now));
         let open_target = if self.floating_menu { 1.0 } else { 0.0 };
         let cur_open = self.open_anim.get();
-        let next_open = if (cur_open - open_target).abs() < 0.005 {
+        let decay_open = 1.0 - (-18.0 * dt).exp();
+        let next_open = if (cur_open - open_target).abs() < 0.002 {
             open_target
         } else {
-            (cur_open + (open_target - cur_open) * (dt * 14.0).clamp(0.15, 1.0)).clamp(0.0, 1.0)
+            (cur_open + (open_target - cur_open) * decay_open).clamp(0.0, 1.0)
         };
         self.open_anim.set(next_open);
 
         let cur_tab = self.tab_anim.get();
-        let next_tab = if cur_tab >= 0.995 {
+        let decay_tab = 1.0 - (-22.0 * dt).exp();
+        let next_tab = if cur_tab >= 0.998 {
             1.0
         } else {
-            (cur_tab + (1.0 - cur_tab) * (dt * 16.0).clamp(0.18, 1.0)).clamp(0.0, 1.0)
+            (cur_tab + (1.0 - cur_tab) * decay_tab).clamp(0.0, 1.0)
         };
         self.tab_anim.set(next_tab);
         (next_open, next_tab)

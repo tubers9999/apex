@@ -787,11 +787,8 @@ impl<'a> Ui<'a> {
             batch,
         }
     }
-    /// Native phone DPI-adaptive launcher density; game HUD scale is untouched.
-    pub fn mobile(atlas: &'a HudAtlas, batch: &'a mut HudBatch, cursor: (f32, f32)) -> Self {
-        let mut ui = Self::new(atlas, batch, cursor);
-        let pw = ui.batch.width * ui.scale;
-        let ph = ui.batch.height * ui.scale;
+    /// Computes the native phone DPI-adaptive density without allocating a `HudBatch`.
+    pub fn calculate_density(pw: f32, ph: f32) -> f32 {
         let hw_dpi = f32::from_bits(ANDROID_DPI_BITS.load(std::sync::atomic::Ordering::Relaxed));
         let user_scale = (UI_SCALE_PERCENT.load(std::sync::atomic::Ordering::Relaxed) as f32
             / 100.0)
@@ -822,9 +819,17 @@ impl<'a> Ui<'a> {
         } else {
             (ph / 410.0).min(pw / 760.0).max(1.0)
         };
-        ui.density = (base_density * user_scale)
+        (base_density * user_scale)
             .min(max_safe_density)
-            .clamp(0.5, 4.5);
+            .clamp(0.5, 4.5)
+    }
+
+    /// Native phone DPI-adaptive launcher density; game HUD scale is untouched.
+    pub fn mobile(atlas: &'a HudAtlas, batch: &'a mut HudBatch, cursor: (f32, f32)) -> Self {
+        let mut ui = Self::new(atlas, batch, cursor);
+        let pw = ui.batch.width * ui.scale;
+        let ph = ui.batch.height * ui.scale;
+        ui.density = Self::calculate_density(pw, ph);
         ui.w = pw / ui.density;
         ui.h = ph / ui.density;
         ui.cursor = (
@@ -1774,9 +1779,36 @@ impl<'a> Ui<'a> {
         }
     }
 
-    /// Paints the active theme background (solid or multi-stop gradient) over `[x, y, w, h]` dp.
+    /// Paints the active theme background (solid, multi-stop gradient, or liquid glass animated wave) over `[x, y, w, h]` dp.
     pub fn draw_theme_background(&mut self, x: f32, y: f32, w: f32, h: f32, theme: &ResolvedTheme) {
-        if theme.is_gradient {
+        if theme.liquid_glass {
+            let mid = theme
+                .use_three_stops
+                .then_some((theme.gradient_mid_pos, theme.gradient_mid));
+            self.fill_gradient(
+                x,
+                y,
+                w,
+                h,
+                theme.gradient_direction,
+                theme.gradient_start,
+                theme.gradient_end,
+                mid,
+                24,
+            );
+            // Procedural liquid glass caustics / gentle harmonic wave bands
+            static WAVE_START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+            let t = WAVE_START.get_or_init(std::time::Instant::now).elapsed().as_secs_f32();
+            let wave_y = y + h * 0.28 + (t * 0.55).sin() * (h * 0.08);
+            let wave_h = (h * 0.36).clamp(80.0, 360.0);
+            let wave_col = color::with_alpha(theme.accent, 0.07);
+            self.fill(x, wave_y.clamp(y, (y + h - wave_h).max(y)), w, wave_h, wave_col);
+            let wave2_y = y + h * 0.52 + (t * 0.38 + 2.1).cos() * (h * 0.09);
+            let wave2_col = color::with_alpha(theme.surface_bright, 0.05);
+            self.fill(x, wave2_y.clamp(y, (y + h - wave_h).max(y)), w, wave_h * 0.85, wave2_col);
+            // High-luminance top glass sheen edge
+            self.fill(x, y, w, 2.0, color::with_alpha(0xFFFFFF, 0.14));
+        } else if theme.is_gradient {
             let mid = theme
                 .use_three_stops
                 .then_some((theme.gradient_mid_pos, theme.gradient_mid));
@@ -2360,6 +2392,8 @@ pub struct LauncherThemeConfig {
     pub gradient_end_hex: String,
     pub gradient_mid_pos: f32,
     pub use_three_stops: bool,
+    #[serde(default)]
+    pub liquid_glass: bool,
 }
 
 impl Default for LauncherThemeConfig {
@@ -2377,6 +2411,7 @@ impl Default for LauncherThemeConfig {
             gradient_end_hex: "#0D0B14".into(),
             gradient_mid_pos: 0.50,
             use_three_stops: true,
+            liquid_glass: false,
         }
     }
 }
@@ -2469,6 +2504,7 @@ pub struct ResolvedTheme {
     pub text_muted: u32,
     pub success: u32,
     pub danger: u32,
+    pub liquid_glass: bool,
 }
 
 impl Default for ResolvedTheme {
@@ -2639,6 +2675,24 @@ impl LauncherThemeConfig {
             bg_rgb
         };
 
+        let (surf_alpha, dim_alpha, bright_alpha, border_final) = if self.liquid_glass {
+            (
+                175,
+                145,
+                205,
+                color::hex(
+                    if is_light {
+                        0xFFFFFF
+                    } else {
+                        blend_rgb(accent_rgb, 0xFFFFFF, 0.45)
+                    },
+                    95,
+                ),
+            )
+        } else {
+            (245, 248, 250, color::hex(border_rgb, 255))
+        };
+
         ResolvedTheme {
             is_light,
             is_gradient: self.background_mode == BackgroundMode::Gradient,
@@ -2651,11 +2705,11 @@ impl LauncherThemeConfig {
             gradient_end: color::hex(ge_adj, 255),
             sidebar_bg: color::hex(sidebar_rgb, 246),
             header_bg: color::hex(header_rgb, 246),
-            surface: color::hex(surf_rgb, 245),
-            surface_dim: color::hex(surf_dim_rgb, 248),
-            surface_bright: color::hex(surf_bright_rgb, 250),
+            surface: color::hex(surf_rgb, surf_alpha),
+            surface_dim: color::hex(surf_dim_rgb, dim_alpha),
+            surface_bright: color::hex(surf_bright_rgb, bright_alpha),
             surface_selected: color::hex(surf_sel_rgb, 252),
-            border: color::hex(border_rgb, 255),
+            border: border_final,
             border_strong: color::hex(border_strong_rgb, 255),
             accent: color::hex(accent_rgb, 255),
             accent_soft: color::with_alpha(color::hex(accent_rgb, 255), 0.22),
@@ -2665,6 +2719,7 @@ impl LauncherThemeConfig {
             text_muted: color::hex(text_muted_rgb, 255),
             success: color::hex(if is_light { 0x15803D } else { 0x4ADE80 }, 255),
             danger: color::hex(if is_light { 0xDC2626 } else { 0xF87171 }, 255),
+            liquid_glass: self.liquid_glass,
         }
     }
 }

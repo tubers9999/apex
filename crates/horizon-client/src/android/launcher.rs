@@ -72,6 +72,8 @@ pub(super) struct Launcher {
     pub(super) diagnostics_modal_open: bool,
     focus: Option<usize>,
     diagnostic_export: Option<mpsc::Receiver<std::result::Result<String, String>>>,
+    custom_bgm_channel: Option<horizon_client::audio::SoundChannelId>,
+    custom_bgm_checked: bool,
 }
 
 impl Launcher {
@@ -250,6 +252,8 @@ impl Launcher {
             diagnostics_modal_open: false,
             focus: None,
             diagnostic_export: None,
+            custom_bgm_channel: None,
+            custom_bgm_checked: false,
         }
     }
 
@@ -580,6 +584,11 @@ impl Launcher {
                 }
             };
 
+            if let Some(ch) = self.custom_bgm_channel.take() {
+                if let Some(audio) = &mut self.audio {
+                    audio.stop_custom_stream(ch);
+                }
+            }
             self.audio = None;
             self.error = None;
             let _ = std::fs::remove_file(self.home.join("android-error.txt"));
@@ -877,6 +886,24 @@ impl ApplicationHandler for Launcher {
                 crate::platform::hide();
             }
             self.edit_text(out);
+        }
+        if !self.custom_bgm_checked {
+            self.custom_bgm_checked = true;
+            let candidates = [
+                self.home.join("theme/bgm.ogg"),
+                self.home.join("theme/music.ogg"),
+                self.catalog.config.game_home(&self.home).join("theme/bgm.ogg"),
+                self.catalog.config.game_home(&self.home).join("theme/music.ogg"),
+            ];
+            for p in &candidates {
+                if p.is_file() {
+                    let audio = self.audio.get_or_insert_with(|| {
+                        horizon_client::audio::Audio::new(&self.home.join(".local/horizon-client/26.3"))
+                    });
+                    self.custom_bgm_channel = audio.play_custom_stream(p, 0.45, true);
+                    break;
+                }
+            }
         }
         if let Some(audio) = &mut self.audio {
             audio.tick(false, &Default::default());

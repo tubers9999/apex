@@ -8,6 +8,7 @@ use crate::sound_engine::{
     Attenuation, Backend, Bound, ChannelId, InstanceId, PlayResult, SoundEngine, SoundInstance,
     Sounds, TickContext,
 };
+pub use crate::sound_engine::ChannelId as SoundChannelId;
 use crate::sound_events::{Sound, SoundRegistry};
 #[cfg(feature = "audio")]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -1324,6 +1325,37 @@ impl Audio {
             ),
             false,
         );
+    }
+    /// Plays an external `.ogg` audio file directly through the mixer (looping or one-shot).
+    pub fn play_custom_stream(&mut self, path: &Path, volume: f32, looping: bool) -> Option<ChannelId> {
+        let (samples, rate) = decode(path)?;
+        let mut mixer = self.backend.mixer.lock().ok()?;
+        self.backend.next += 1;
+        let id = self.backend.next;
+        mixer.channels.insert(
+            id,
+            Channel {
+                samples: Some((Arc::new(samples), rate)),
+                position: 0.0,
+                state: State::Playing,
+                gain: volume.clamp(0.0, 1.0) * self.master.clamp(0.0, 1.0),
+                pitch: 1.0,
+                linear: None,
+                looping,
+                at: [0.0; 3],
+                relative: true,
+                owner: self.backend.owner,
+                world: self.backend.world,
+                started: Some((path.to_string_lossy().into_owned(), std::time::Instant::now())),
+            },
+        );
+        Some(id)
+    }
+    /// Stops a custom playing audio channel.
+    pub fn stop_custom_stream(&mut self, channel: ChannelId) {
+        if let Ok(mut mixer) = self.backend.mixer.lock() {
+            mixer.channels.remove(&channel);
+        }
     }
     /// `SoundPreviewHandler.preview`: a category volume slider moved to
     /// `volume` on the title screen's options.

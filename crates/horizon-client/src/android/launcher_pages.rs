@@ -180,16 +180,18 @@ impl AnimState {
             raw_dt
         };
 
-        let speed = (dt * 14.0).min(1.0);
-        self.nav_pill_y += (target_nav_y - self.nav_pill_y) * (dt * 18.0).min(1.0);
-        self.page_fade = (self.page_fade + dt * 7.5).min(1.0);
-        self.page_slide *= (1.0 - speed).max(0.0);
+        let decay_nav = 1.0 - (-22.0 * dt).exp();
+        self.nav_pill_y += (target_nav_y - self.nav_pill_y) * decay_nav;
+        self.page_fade = (self.page_fade + dt * 8.5).min(1.0);
+        self.page_slide *= (-18.0 * dt).exp();
         let modal_target = if has_modal { 1.0 } else { 0.0 };
-        self.modal_anim += (modal_target - self.modal_anim) * (dt * 14.0).min(1.0);
-        self.theme_pulse = (self.theme_pulse + dt * 6.5).min(1.0);
+        let decay_modal = 1.0 - (-18.0 * dt).exp();
+        self.modal_anim += (modal_target - self.modal_anim) * decay_modal;
+        self.theme_pulse = (self.theme_pulse + dt * 7.5).min(1.0);
         for i in 0..3 {
             let target = if sections[i] { 1.0 } else { 0.0 };
-            self.section_expand[i] += (target - self.section_expand[i]) * (dt * 14.0).min(1.0);
+            let decay_sec = 1.0 - (-16.0 * dt).exp();
+            self.section_expand[i] += (target - self.section_expand[i]) * decay_sec;
         }
         self.shimmer_phase = (self.shimmer_phase + dt * 0.95) % 1.0;
     }
@@ -382,6 +384,7 @@ pub(super) enum Action {
     SelectGradStartSwatch(u32),
     SelectGradEndSwatch(u32),
     ResetTheme,
+    ToggleLiquidGlass,
     // Intro & Installed / File Manager actions
     SkipIntro,
     SetInstalledSubTab(crate::catalog::InstalledSubTab),
@@ -588,6 +591,9 @@ fn draw_setting_card(
             1.8,
             my3_accent(),
         );
+    }
+    if horizon_client::ui_theme::active_theme().liquid_glass {
+        ui.fill(x + 12.0, y + 1.5, (w - 24.0).max(4.0), 1.0, 0x35FFFFFF);
     }
 
     let text_max = (w - 236.0).max(90.0);
@@ -4250,9 +4256,9 @@ impl Launcher {
                 let theme_cfg = self.catalog.config.theme.clone();
                 let resolved = theme_cfg.resolve();
                 let total_h = if theme_cfg.background_mode == BackgroundMode::Gradient {
-                    690.0
+                    790.0
                 } else {
-                    580.0
+                    680.0
                 };
                 let extra_ime = if ime_top_dp.is_some() { 200.0 } else { 0.0 };
                 let max_scroll = (total_h + extra_ime - (list_bottom - list_top)).max(0.0);
@@ -4430,6 +4436,85 @@ impl Launcher {
                         );
                         self.list_targets
                             .push((r, Action::SetThemeBackgroundMode(bmode)));
+                    }
+                }
+                cy += 48.0;
+
+                // 2.5 Liquid Glass Effect Toggle
+                if cy + 46.0 >= list_top && cy <= list_bottom {
+                    let lg_r = [content_x, cy, content_w, 42.0];
+                    let lg_active = theme_cfg.liquid_glass;
+                    ui.rounded(
+                        lg_r[0],
+                        lg_r[1],
+                        lg_r[2],
+                        lg_r[3],
+                        12.0,
+                        if lg_active {
+                            my3_surface_high()
+                        } else {
+                            my3_card_bg()
+                        },
+                    );
+                    ui.border(
+                        lg_r[0],
+                        lg_r[1],
+                        lg_r[2],
+                        lg_r[3],
+                        12.0,
+                        if lg_active {
+                            my3_accent()
+                        } else {
+                            my3_card_border()
+                        },
+                    );
+                    ui.icon(
+                        Icon::Sparkle,
+                        content_x + 12.0,
+                        cy + 12.0,
+                        18.0,
+                        if lg_active {
+                            my3_accent()
+                        } else {
+                            my3_muted()
+                        },
+                    );
+                    ui.text(
+                        Face::SemiBold,
+                        12.5,
+                        content_x + 38.0,
+                        cy + 12.0,
+                        my3_text(),
+                        "Liquid Glass Effect (Frosted Acrylic Sheen)",
+                    );
+                    let badge_w = 60.0;
+                    let badge_r = [content_x + content_w - badge_w - 10.0, cy + 8.0, badge_w, 26.0];
+                    ui.rounded(
+                        badge_r[0],
+                        badge_r[1],
+                        badge_r[2],
+                        badge_r[3],
+                        13.0,
+                        if lg_active {
+                            my3_accent()
+                        } else {
+                            my3_surface()
+                        },
+                    );
+                    ui.centered(
+                        Face::SemiBold,
+                        11.0,
+                        badge_r,
+                        if lg_active {
+                            0xFF0E0C16
+                        } else {
+                            my3_muted()
+                        },
+                        if lg_active { "ON" } else { "OFF" },
+                    );
+                    self.list_targets.push((lg_r, Action::ToggleLiquidGlass));
+                    if let Some(c) = ui.clip_rect(lg_r) {
+                        self.targets.push((c, Action::ToggleLiquidGlass));
                     }
                 }
                 cy += 50.0;
@@ -4770,6 +4855,29 @@ impl Launcher {
                     );
                     self.list_targets
                         .push((mid_r, Action::StepGradientMidPos(1)));
+                }
+
+                cy += 48.0;
+                if cy + 54.0 >= list_top && cy <= list_bottom {
+                    ui.rounded(content_x, cy, content_w, 52.0, 12.0, my3_card_bg());
+                    ui.border(content_x, cy, content_w, 52.0, 12.0, my3_card_border());
+                    ui.icon(Icon::Folder, content_x + 12.0, cy + 15.0, 22.0, my3_accent());
+                    ui.text(
+                        Face::SemiBold,
+                        12.0,
+                        content_x + 42.0,
+                        cy + 10.0,
+                        my3_text(),
+                        "Custom Background & Audio (theme/)",
+                    );
+                    ui.text(
+                        Face::Regular,
+                        9.5,
+                        content_x + 42.0,
+                        cy + 28.0,
+                        my3_muted(),
+                        "Place theme/background.png and theme/bgm.ogg in games/horizon/theme/",
+                    );
                 }
 
                 ui.set_clip(None);
@@ -6531,6 +6639,17 @@ impl Launcher {
                 self.catalog.config.save(&self.home)?;
                 self.catalog.status = "Theme reset to Horizon default (Obsidian Violet).".into();
             }
+            Some(Action::ToggleLiquidGlass) => {
+                self.catalog.config.theme.liquid_glass = !self.catalog.config.theme.liquid_glass;
+                horizon_client::ui_theme::set_active_theme(self.catalog.config.theme.resolve());
+                self.anim.trigger_theme_pulse();
+                self.catalog.config.save(&self.home)?;
+                self.catalog.status = if self.catalog.config.theme.liquid_glass {
+                    "Liquid Glass effect enabled (frosted acrylic).".into()
+                } else {
+                    "Liquid Glass effect disabled (solid performance).".into()
+                };
+            }
             Some(Action::SkipIntro) => {
                 self.anim.intro_done = true;
             }
@@ -6904,11 +7023,10 @@ impl Launcher {
     }
 
     pub(super) fn ui_density(&self) -> f32 {
-        let (Some(r), Some(gui)) = (&self.renderer, &self.gui) else {
+        let Some(r) = &self.renderer else {
             return 1.0;
         };
-        let mut batch = HudBatch::new([r.config.width, r.config.height]);
-        Ui::mobile(&gui.atlas, &mut batch, (0.0, 0.0)).density
+        Ui::calculate_density(r.config.width as f32, r.config.height as f32)
     }
 
     pub(super) fn touch_event(&mut self, events: &ActiveEventLoop, t: Touch) -> Result<()> {
