@@ -829,9 +829,7 @@ fn sampler(
 /// (#3525), which a pack's program must not turn into a crash.
 fn checked<T>(device: &wgpu::Device, create: impl FnOnce() -> T) -> Result<T, String> {
     if cfg!(target_os = "android") {
-        // Yield briefly between pipeline compilations on Android so Mali's internal
-        // shader compiler mutex never starves the main render thread's frame submission.
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        std::thread::yield_now();
     }
     let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
@@ -1878,6 +1876,10 @@ impl PackPost {
             for f in &mut formats {
                 if *f == wgpu::TextureFormat::Rgba32Float {
                     *f = wgpu::TextureFormat::Rgba16Float;
+                } else if *f == wgpu::TextureFormat::Rg32Float {
+                    *f = wgpu::TextureFormat::Rg16Float;
+                } else if *f == wgpu::TextureFormat::R32Float {
+                    *f = wgpu::TextureFormat::R16Float;
                 }
             }
         }

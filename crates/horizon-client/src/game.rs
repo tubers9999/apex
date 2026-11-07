@@ -13593,6 +13593,13 @@ impl Game<'_> {
             if self.pad.touch.editor.is_none() {
                 self.pad.touch.settings = self.settings.touch.clone();
             }
+            if self.settings.touch.stats_overlay != 0 {
+                self.settings.horizon.overlay = match self.settings.touch.stats_overlay {
+                    1 => horizon_client::graphics::Overlay::Text,
+                    2 => horizon_client::graphics::Overlay::Graph,
+                    _ => horizon_client::graphics::Overlay::Off,
+                };
+            }
             self.pad.touch.force_crosshair =
                 !crate::touch_visible() || self.settings.keypad.enabled;
             let changed =

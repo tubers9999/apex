@@ -392,6 +392,8 @@ impl Game<'_> {
         let dir = Self::options_path().with_file_name(mod_list::DIR);
         let dev = &self.mods.dev;
         let mut paths = horizon_mods::find(&dir);
+        let native_dir = Self::options_path().with_file_name(mod_list::NATIVE_DIR);
+        paths.extend(horizon_mods::find(&native_dir));
         paths.retain(|p| !dev.contains(p));
         paths.extend(dev.iter().cloned());
         // A dev mod is on whatever the list says.

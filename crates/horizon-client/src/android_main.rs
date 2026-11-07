@@ -247,17 +247,25 @@ fn android_main(app: AndroidApp) {
     exit_reports::install(&home);
     let _ = std::fs::remove_file(home.join("android-error.txt"));
     if let Some(mut data) = engine_data {
-        let copied = (|| -> std::io::Result<()> {
-            let mut file = std::fs::File::create(home.join("engine-data.partial"))?;
-            std::io::copy(&mut data, &mut file)?;
-            drop(file);
-            std::fs::rename(
-                home.join("engine-data.partial"),
-                home.join("engine-data.zip"),
-            )
-        })();
-        if let Err(error) = copied {
-            log::error!("Cannot unpack engine data: {error}");
+        let zip_path = home.join("engine-data.zip");
+        let needed = if zip_path.is_file() {
+            std::fs::metadata(&zip_path).map(|m| m.len()).unwrap_or(0) == 0
+        } else {
+            true
+        };
+        if needed {
+            let copied = (|| -> std::io::Result<()> {
+                let mut file = std::fs::File::create(home.join("engine-data.partial"))?;
+                std::io::copy(&mut data, &mut file)?;
+                drop(file);
+                std::fs::rename(
+                    home.join("engine-data.partial"),
+                    zip_path,
+                )
+            })();
+            if let Err(error) = copied {
+                log::error!("Cannot unpack engine data: {error}");
+            }
         }
     }
     let mut launcher = launcher::Launcher::new(home.clone());

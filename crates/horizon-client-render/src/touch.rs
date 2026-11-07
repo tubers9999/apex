@@ -1692,44 +1692,140 @@ pub fn draw_goy_static_button(
     } else {
         scale_alpha(p.stroke_color, opacity)
     };
-    let r = if p.shape == 2 {
-        (w.min(h) * 0.5).min(24.0)
-    } else {
-        (p.roundness * (w.min(h) / 100.0)).clamp(0.0, w.min(h) * 0.5)
-    };
-    if r > 1.5 {
-        b.fill(a, x + r, y, (w - 2.0 * r).max(1.0), h, fill_c);
-        b.fill(a, x, y + r, r, (h - 2.0 * r).max(1.0), fill_c);
-        b.fill(a, x + w - r, y + r, r, (h - 2.0 * r).max(1.0), fill_c);
-        disc(b, a, [x + r, y + r], r, fill_c);
-        disc(b, a, [x + w - r, y + r], r, fill_c);
-        disc(b, a, [x + r, y + h - r], r, fill_c);
-        disc(b, a, [x + w - r, y + h - r], r, fill_c);
-    } else {
-        b.fill(a, x, y, w, h, fill_c);
-    }
-    if p.stroke_size > 0.1 {
-        let sm = p.stroke_margin;
-        let sx = x - sm;
-        let sy = y - sm;
-        let sw = (w + sm * 2.0).max(2.0);
-        let sh = (h + sm * 2.0).max(2.0);
-        let t = (p.stroke_size * 0.75).clamp(1.0, 5.0);
-        let sr = (r + sm).clamp(0.0, sw.min(sh) * 0.5);
-        if sr > 1.5 {
-            b.fill(a, sx + sr, sy, (sw - 2.0 * sr).max(1.0), t, stroke_c);
-            b.fill(a, sx + sr, sy + sh - t, (sw - 2.0 * sr).max(1.0), t, stroke_c);
-            b.fill(a, sx, sy + sr, t, (sh - 2.0 * sr).max(1.0), stroke_c);
-            b.fill(a, sx + sw - t, sy + sr, t, (sh - 2.0 * sr).max(1.0), stroke_c);
-            ring(b, a, [sx + sr, sy + sr], sr, stroke_c);
-            ring(b, a, [sx + sw - sr, sy + sr], sr, stroke_c);
-            ring(b, a, [sx + sr, sy + sh - sr], sr, stroke_c);
-            ring(b, a, [sx + sw - sr, sy + sh - sr], sr, stroke_c);
-        } else {
-            b.fill(a, sx, sy, sw, t, stroke_c);
-            b.fill(a, sx, sy + sh - t, sw, t, stroke_c);
-            b.fill(a, sx, sy, t, sh, stroke_c);
-            b.fill(a, sx + sw - t, sy, t, sh, stroke_c);
+    match p.shape {
+        1 => {
+            // Square / sharp rectangle
+            b.fill(a, x, y, w, h, fill_c);
+            if p.stroke_size > 0.1 {
+                let sm = p.stroke_margin;
+                let sx = x - sm;
+                let sy = y - sm;
+                let sw = (w + sm * 2.0).max(2.0);
+                let sh = (h + sm * 2.0).max(2.0);
+                let t = (p.stroke_size * 0.75).clamp(1.0, 5.0);
+                b.fill(a, sx, sy, sw, t, stroke_c);
+                b.fill(a, sx, sy + sh - t, sw, t, stroke_c);
+                b.fill(a, sx, sy, t, sh, stroke_c);
+                b.fill(a, sx + sw - t, sy, t, sh, stroke_c);
+            }
+        }
+        2 => {
+            // Circle / Pill
+            let r = w.min(h) * 0.5;
+            b.fill(a, x + r, y, (w - 2.0 * r).max(1.0), h, fill_c);
+            disc(b, a, [x + r, y + r], r, fill_c);
+            disc(b, a, [x + w - r, y + r], r, fill_c);
+            if p.stroke_size > 0.1 {
+                let sm = p.stroke_margin;
+                let sx = x - sm;
+                let sy = y - sm;
+                let sw = (w + sm * 2.0).max(2.0);
+                let sh = (h + sm * 2.0).max(2.0);
+                let sr = sw.min(sh) * 0.5;
+                let t = (p.stroke_size * 0.75).clamp(1.0, 5.0);
+                b.fill(a, sx + sr, sy, (sw - 2.0 * sr).max(1.0), t, stroke_c);
+                b.fill(a, sx + sr, sy + sh - t, (sw - 2.0 * sr).max(1.0), t, stroke_c);
+                ring(b, a, [sx + sr, sy + sr], sr, stroke_c);
+                ring(b, a, [sx + sw - sr, sy + sr], sr, stroke_c);
+            }
+        }
+        3 => {
+            // Cut-Corner Octagon
+            let cut = (w.min(h) * 0.20).clamp(3.0, 14.0);
+            b.fill(a, x + cut, y, (w - cut * 2.0).max(1.0), h, fill_c);
+            b.fill(a, x, y + cut, w, (h - cut * 2.0).max(1.0), fill_c);
+            let half_c = cut * 0.5;
+            b.fill(
+                a,
+                x + half_c,
+                y + half_c,
+                (w - cut).max(1.0),
+                (h - cut).max(1.0),
+                fill_c,
+            );
+            if p.stroke_size > 0.1 {
+                let sm = p.stroke_margin;
+                let sx = x - sm;
+                let sy = y - sm;
+                let sw = (w + sm * 2.0).max(2.0);
+                let sh = (h + sm * 2.0).max(2.0);
+                let t = (p.stroke_size * 0.75).clamp(1.0, 5.0);
+                let scut = (cut + sm).clamp(3.0, sw.min(sh) * 0.4);
+                b.fill(a, sx + scut, sy, (sw - 2.0 * scut).max(1.0), t, stroke_c);
+                b.fill(a, sx + scut, sy + sh - t, (sw - 2.0 * scut).max(1.0), t, stroke_c);
+                b.fill(a, sx, sy + scut, t, (sh - 2.0 * scut).max(1.0), stroke_c);
+                b.fill(a, sx + sw - t, sy + scut, t, (sh - 2.0 * scut).max(1.0), stroke_c);
+            }
+        }
+        4 => {
+            // Diamond / Rhombus
+            let steps = 7;
+            for i in 0..steps {
+                let frac = (i as f32 + 0.5) / steps as f32;
+                let dist = (frac - 0.5).abs() * 2.0;
+                let sw = (w * (1.0 - dist * 0.72)).max(4.0);
+                let sy = y + (i as f32 / steps as f32) * h;
+                let sh = (h / steps as f32) + 0.8;
+                b.fill(a, x + (w - sw) * 0.5, sy, sw, sh, fill_c);
+            }
+            if p.stroke_size > 0.1 {
+                let t = (p.stroke_size * 0.75).clamp(1.0, 4.0);
+                b.fill(a, x + w * 0.5 - t * 0.5, y, t, h, stroke_c);
+            }
+        }
+        5 => {
+            // Hexagon Tactical Badge
+            let steps = 5;
+            for i in 0..steps {
+                let dist = ((i as f32 - 2.0).abs() / 2.0).powf(1.2);
+                let sw = (w * (1.0 - dist * 0.34)).max(4.0);
+                let sy = y + (i as f32 / steps as f32) * h;
+                let sh = (h / steps as f32) + 0.8;
+                b.fill(a, x + (w - sw) * 0.5, sy, sw, sh, fill_c);
+            }
+            if p.stroke_size > 0.1 {
+                let t = (p.stroke_size * 0.75).clamp(1.0, 4.0);
+                b.fill(a, x + w * 0.15, y, (w * 0.7).max(1.0), t, stroke_c);
+                b.fill(a, x + w * 0.15, y + h - t, (w * 0.7).max(1.0), t, stroke_c);
+            }
+        }
+        _ => {
+            let r = (p.roundness * (w.min(h) / 100.0)).clamp(0.0, w.min(h) * 0.5);
+            if r > 1.5 {
+                b.fill(a, x + r, y, (w - 2.0 * r).max(1.0), h, fill_c);
+                b.fill(a, x, y + r, r, (h - 2.0 * r).max(1.0), fill_c);
+                b.fill(a, x + w - r, y + r, r, (h - 2.0 * r).max(1.0), fill_c);
+                disc(b, a, [x + r, y + r], r, fill_c);
+                disc(b, a, [x + w - r, y + r], r, fill_c);
+                disc(b, a, [x + r, y + h - r], r, fill_c);
+                disc(b, a, [x + w - r, y + h - r], r, fill_c);
+            } else {
+                b.fill(a, x, y, w, h, fill_c);
+            }
+            if p.stroke_size > 0.1 {
+                let sm = p.stroke_margin;
+                let sx = x - sm;
+                let sy = y - sm;
+                let sw = (w + sm * 2.0).max(2.0);
+                let sh = (h + sm * 2.0).max(2.0);
+                let t = (p.stroke_size * 0.75).clamp(1.0, 5.0);
+                let sr = (r + sm).clamp(0.0, sw.min(sh) * 0.5);
+                if sr > 1.5 {
+                    b.fill(a, sx + sr, sy, (sw - 2.0 * sr).max(1.0), t, stroke_c);
+                    b.fill(a, sx + sr, sy + sh - t, (sw - 2.0 * sr).max(1.0), t, stroke_c);
+                    b.fill(a, sx, sy + sr, t, (sh - 2.0 * sr).max(1.0), stroke_c);
+                    b.fill(a, sx + sw - t, sy + sr, t, (sh - 2.0 * sr).max(1.0), stroke_c);
+                    ring(b, a, [sx + sr, sy + sr], sr, stroke_c);
+                    ring(b, a, [sx + sw - sr, sy + sr], sr, stroke_c);
+                    ring(b, a, [sx + sr, sy + sh - sr], sr, stroke_c);
+                    ring(b, a, [sx + sw - sr, sy + sh - sr], sr, stroke_c);
+                } else {
+                    b.fill(a, sx, sy, sw, t, stroke_c);
+                    b.fill(a, sx, sy + sh - t, sw, t, stroke_c);
+                    b.fill(a, sx, sy, t, sh, stroke_c);
+                    b.fill(a, sx + sw - t, sy, t, sh, stroke_c);
+                }
+            }
         }
     }
     if !label.is_empty() && a.sprites.contains_key("font/ascii") {

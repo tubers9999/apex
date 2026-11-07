@@ -515,6 +515,9 @@ pub struct Settings {
     pub floating_menu_pos: [f32; 2],
     #[serde(default)]
     pub snap_to_grid: bool,
+    /// Performance Stats Overlay: 0 = Off, 1 = FPS & Frame Latency (Text), 2 = FPS + Frame Graph.
+    #[serde(default)]
+    pub stats_overlay: u8,
     #[serde(deserialize_with = "deserialize_layouts")]
     pub layouts: [[Placement; 14]; 3],
 }

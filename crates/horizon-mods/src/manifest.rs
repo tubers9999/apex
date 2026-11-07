@@ -324,14 +324,20 @@ impl Package {
     /// A `.hmod` (a zip holding `horizon-mod.toml`, `mod.wasm` and, for
     /// content, `assets/` and `data/`) or a folder holding the same.
     pub fn read(path: &Path) -> Result<Self, String> {
-        let (toml, wasm) = if path.is_dir() {
+        let (toml, wasm, is_native_bundle) = if path.is_dir() {
             let toml = std::fs::read_to_string(path.join(MANIFEST));
             let wasm = path.join(WASM);
             let wasm = match wasm.exists() {
                 true => Some(std::fs::read(wasm).map_err(|e| format!("{WASM}: {e}"))?),
                 false => None,
             };
-            (toml.map_err(|e| format!("{MANIFEST}: {e}"))?, wasm)
+            if toml.is_err() && path.join("horizon-native.json").is_file() {
+                let nat_text = std::fs::read_to_string(path.join("horizon-native.json"))
+                    .map_err(|e| format!("horizon-native.json: {e}"))?;
+                (Ok(nat_text), wasm, true)
+            } else {
+                (toml.map_err(|e| format!("{MANIFEST}: {e}")), wasm, false)
+            }
         } else {
             let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
             let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
@@ -347,14 +353,68 @@ impl Package {
                     .map_err(|e| e.to_string())?;
                 Ok(Some(out))
             };
-            let toml = entry(MANIFEST)?.ok_or_else(|| format!("{MANIFEST}: missing"))?;
-            let toml = String::from_utf8(toml).map_err(|_| format!("{MANIFEST}: not UTF-8"))?;
-            (toml, entry(WASM)?)
+            let toml_opt = entry(MANIFEST)?;
+            let wasm = entry(WASM)?;
+            if let Some(bytes) = toml_opt {
+                let toml = String::from_utf8(bytes).map_err(|_| format!("{MANIFEST}: not UTF-8"))?;
+                (Ok(toml), wasm, false)
+            } else if let Some(native_bytes) = entry("horizon-native.json")? {
+                let nat_text = String::from_utf8(native_bytes)
+                    .map_err(|_| "horizon-native.json: not UTF-8".to_string())?;
+                (Ok(nat_text), wasm, true)
+            } else {
+                (Err(format!("{MANIFEST}: missing")), wasm, false)
+            }
+        };
+        let toml_str = toml?;
+        let manifest = if is_native_bundle {
+            #[derive(Deserialize)]
+            struct NativeJson {
+                id: String,
+                #[serde(default)]
+                version: String,
+                #[serde(default)]
+                description: Option<String>,
+            }
+            let parsed: NativeJson = serde_json::from_str(&toml_str)
+                .map_err(|e| format!("horizon-native.json: {e}"))?;
+            let id = parsed.id.trim().to_lowercase().replace('-', "_");
+            let id_clean: String = id
+                .chars()
+                .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_')
+                .collect();
+            let safe_id = if id_clean.is_empty() {
+                "mod".into()
+            } else {
+                id_clean
+            };
+            let has_wasm = wasm.is_some();
+            Manifest {
+                id: safe_id.clone(),
+                name: safe_id,
+                version: if parsed.version.is_empty() {
+                    "1.0.0".into()
+                } else {
+                    parsed.version
+                },
+                description: parsed.description.unwrap_or_default(),
+                authors: Vec::new(),
+                api: if has_wasm { API.into() } else { "0.2".into() },
+                side: Side::Both,
+                capabilities: if has_wasm {
+                    Vec::new()
+                } else {
+                    vec![Capability::Registries]
+                },
+                namespaces: Vec::new(),
+                experimental: Vec::new(),
+            }
+        } else {
+            Manifest::parse(&toml_str)?
         };
         if wasm.as_ref().is_some_and(|w| w.len() as u64 > MAX_WASM) {
             return Err(format!("{WASM} is over {} MiB", MAX_WASM >> 20));
         }
-        let manifest = Manifest::parse(&toml)?;
         if wasm.is_none() && !manifest.capabilities.contains(&Capability::Registries) {
             return Err(format!(
                 "{WASM}: missing (only a content mod, with capability registries, may have no code)"
@@ -402,7 +462,11 @@ pub fn find(dir: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = read
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "hmod") || p.join(MANIFEST).is_file())
+        .filter(|p| {
+            p.extension().is_some_and(|e| e == "hmod" || e == "hnmod")
+                || p.join(MANIFEST).is_file()
+                || p.join("horizon-native.json").is_file()
+        })
         .collect();
     found.sort();
     found

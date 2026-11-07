@@ -1013,6 +1013,18 @@ impl Game<'_> {
                         r.invalidate_menu_blur();
                     }
                 }
+                InGameMenuAction::ToggleStats => {
+                    let next_mode = (self.pad.touch.settings.stats_overlay + 1) % 3;
+                    self.pad.touch.settings.stats_overlay = next_mode;
+                    self.settings.horizon.overlay = match next_mode {
+                        1 => horizon_client::graphics::Overlay::Text,
+                        2 => horizon_client::graphics::Overlay::Graph,
+                        _ => horizon_client::graphics::Overlay::Off,
+                    };
+                    let _ = self.pad.touch.settings.save();
+                    self.settings.touch = self.pad.touch.settings.clone();
+                    self.settings.save(&Self::options_path());
+                }
                 InGameMenuAction::SendCustomInput(token) => {
                     self.android_sync_pointer();
                     self.android_custom_token_tap(&token);

@@ -169,6 +169,8 @@ pub enum InGameMenuAction {
     SetResolutionScale(u32),
     /// Toggle in-game animations (animated textures, view bobbing, chunk fade, UI transitions).
     ToggleGameAnimations,
+    /// Toggle performance stats overlay (FPS, frame time ms, CPU/GPU, frame graph).
+    ToggleStats,
     /// Send a custom keyboard key, mouse button/scroll, or gameplay action token immediately.
     SendCustomInput(String),
 }
@@ -1413,7 +1415,11 @@ pub fn draw_goy_hud(
         || (0..tc.settings.custom_buttons.len()).any(|i| {
             tc.custom_visible_for_state(i, in_menu) && tc.custom_placement(i).use_goy_style
         });
-    if !has_goy_move && !has_goy_custom {
+    let has_goy_controls = is_goy_system
+        || Control::ALL
+            .iter()
+            .any(|&c| tc.placement(c).use_goy_style);
+    if !has_goy_move && !has_goy_custom && !has_goy_controls {
         return;
     }
     let hud_scale = tc.hud_opacity_scale.clamp(0.0, 1.0);
@@ -1517,6 +1523,59 @@ pub fn draw_goy_hud(
         );
         let fg_col = color::with_alpha(text_c, (alpha.max(0.75) * hud_scale).clamp(0.0, 1.0));
         draw_button_icon_and_label(&mut ui, [rx, ry, rw, rh], p.icon_id, &label, fg_col);
+    }
+
+    // 3. Standard GoyControl Buttons (Attack, Use, Jump, Sneak, Sprint, Swap, etc.)
+    for control in Control::ALL {
+        if control == Control::Move || !tc.visible_for_state(control, in_menu) {
+            continue;
+        }
+        let p = tc.placement(control);
+        if !is_goy_system && !p.use_goy_style {
+            continue;
+        }
+        let [nx, ny, nw, nh] = p.rect(tc.aspect());
+        let [rx, ry, rw, rh] = [nx * w, ny * h, nw * w, nh * h];
+        let alpha = (p.opacity.clamp(0.15, 1.0) * hud_scale).clamp(0.0, 1.0);
+        if alpha <= 0.001 {
+            continue;
+        }
+        let held = crate::touch::TouchControls::button(control).is_some_and(|bt| state.held(bt));
+        let toggled = (tc.latched_controls & (1 << (control as u16))) != 0;
+        let raw_fill = if held {
+            p.on_click_color
+        } else if toggled {
+            p.on_toggle_color
+        } else {
+            p.button_color
+        };
+        let raw_stroke = if held {
+            p.on_click_stroke_color
+        } else if toggled {
+            p.on_toggle_stroke_color
+        } else {
+            p.stroke_color
+        };
+        let fill_c = color::with_alpha(raw_fill, alpha);
+        let stroke_c = color::with_alpha(raw_stroke, alpha);
+        let shadow_c = color::with_alpha(p.shadow_color, alpha);
+        ui.goy_box(
+            rx,
+            ry,
+            rw,
+            rh,
+            p.shape,
+            p.roundness,
+            fill_c,
+            p.stroke_size,
+            p.stroke_margin,
+            p.stroke_roundness,
+            stroke_c,
+            0.0,
+            shadow_c,
+        );
+        let fg_col = color::with_alpha(text_c, (alpha.max(0.75) * hud_scale).clamp(0.0, 1.0));
+        draw_button_icon_and_label(&mut ui, [rx, ry, rw, rh], p.icon_id, control.name(), fg_col);
     }
 
     ui.finish();
@@ -2332,6 +2391,10 @@ impl TouchUi {
                 if inside([cx, anim_y, cw, 46.0]) {
                     return Some(InGameMenuAction::ToggleGameAnimations);
                 }
+                let stats_y = body_y + 392.0;
+                if inside([cx, stats_y, cw, 46.0]) {
+                    return Some(InGameMenuAction::ToggleStats);
+                }
             }
             1 => {
                 // Tab 1: Controls
@@ -2735,7 +2798,7 @@ impl TouchUi {
         // Scrollable Right Content Panel with scissor clip and tab transition slide
         let tab_slide = (1.0 - tab_ease) * 14.0;
         let content_height = match self.hub_tab {
-            0 => 394.0,
+            0 => 450.0,
             1 => 368.0,
             2 => 410.0,
             3 => 242.0,
@@ -3007,6 +3070,20 @@ impl TouchUi {
                     "Animated block textures, view bobbing, FOV transitions & menu motion",
                     Some(!settings.disable_game_animations),
                     None,
+                );
+
+                let stats_lbl = match settings.stats_overlay {
+                    1 => "FPS (Text)",
+                    2 => "Graph (Full)",
+                    _ => "Off",
+                };
+                draw_toggle_row(
+                    &mut ui,
+                    body_y + 392.0,
+                    "Performance Stats Overlay",
+                    "Live FPS counter, frame time ms, CPU/GPU latency & frame graph",
+                    Some(settings.stats_overlay != 0),
+                    Some(stats_lbl),
                 );
             }
             1 => {
