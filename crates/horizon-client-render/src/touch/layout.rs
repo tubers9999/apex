@@ -652,6 +652,7 @@ impl Default for Settings {
             joystick_style: JoystickStyle::default(),
             floating_menu_pos: default_floating_pos(),
             snap_to_grid: false,
+            stats_overlay: 0,
             layouts,
         }
     }
