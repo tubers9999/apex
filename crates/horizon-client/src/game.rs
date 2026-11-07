@@ -13595,7 +13595,7 @@ impl Game<'_> {
             }
             if self.settings.touch.stats_overlay != 0 {
                 self.settings.horizon.overlay = match self.settings.touch.stats_overlay {
-                    1 => horizon_client::graphics::Overlay::Text,
+                    1 => horizon_client::graphics::Overlay::Fps,
                     2 => horizon_client::graphics::Overlay::Graph,
                     _ => horizon_client::graphics::Overlay::Off,
                 };

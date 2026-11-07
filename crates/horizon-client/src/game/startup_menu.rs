@@ -1894,7 +1894,7 @@ impl Loading {
                         let next_mode = (self.menu.controls.settings.stats_overlay + 1) % 3;
                         self.menu.controls.settings.stats_overlay = next_mode;
                         self.settings.horizon.overlay = match next_mode {
-                            1 => horizon_client::graphics::Overlay::Text,
+                            1 => horizon_client::graphics::Overlay::Fps,
                             2 => horizon_client::graphics::Overlay::Graph,
                             _ => horizon_client::graphics::Overlay::Off,
                         };
