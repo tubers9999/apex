@@ -754,6 +754,17 @@ impl Cache {
         self.images.insert(key.to_owned(), rect);
         Some(rect)
     }
+    fn raw_image(&mut self, atlas: &HudAtlas, key: &str, w: u32, h: u32, rgba: Vec<u8>) -> Option<Rect> {
+        if let Some(&rect) = self.images.get(key) {
+            return Some(rect);
+        }
+        if w == 0 || h == 0 || rgba.len() != (w * h * 4) as usize {
+            return None;
+        }
+        let rect = self.upload_rgba(atlas, w, h, rgba)?;
+        self.images.insert(key.to_owned(), rect);
+        Some(rect)
+    }
 }
 
 /// One frame of design-system drawing, in dp: the
@@ -1226,6 +1237,33 @@ impl<'a> Ui<'a> {
     ) -> bool {
         let atlas = self.atlas;
         let Some(rect) = with_cache(atlas, |c| c.image(atlas, key, w, h, rgba)) else {
+            return false;
+        };
+        let (x0, y0, x1, y1) = (
+            self.px_x(x),
+            self.px_y(y),
+            self.px_x(x + dw),
+            self.px_y(y + dh),
+        );
+        self.emit_clipped_uv(x0, y0, x1, y1, rect.u0, rect.v0, rect.u1, rect.v1, u32::MAX);
+        true
+    }
+
+    /// Blit an unmasked RGBA image (like a wallpaper) into the dynamic atlas and draw it over `[x, y, dw, dh]` dp.
+    #[allow(clippy::too_many_arguments)]
+    pub fn raw_image(
+        &mut self,
+        key: &str,
+        w: u32,
+        h: u32,
+        rgba: Vec<u8>,
+        x: f32,
+        y: f32,
+        dw: f32,
+        dh: f32,
+    ) -> bool {
+        let atlas = self.atlas;
+        let Some(rect) = with_cache(atlas, |c| c.raw_image(atlas, key, w, h, rgba)) else {
             return false;
         };
         let (x0, y0, x1, y1) = (
@@ -1836,9 +1874,9 @@ impl<'a> Ui<'a> {
 
     // ---- the launcher's components & animated Horizon intro ----
 
-    /// Draws the procedural crisp vector Horizon `H` mark centered at `(cx, cy)` in `size x size` dp:
-    /// left pillar sliding up, right pillar sliding down, and tilted horizon bridge sweeping across
-    /// with a subtle accent glow ring.
+    /// Draws the procedural crisp vector Apex Chevron mark centered at `(cx, cy)` in `size x size` dp:
+    /// razor-sharp angular chevron wings meeting at apex tip, horizontal cyber crossbar,
+    /// and energetic glowing accent ring.
     pub fn draw_animated_horizon_mark(
         &mut self,
         cx: f32,
@@ -1853,102 +1891,129 @@ impl<'a> Ui<'a> {
         }
         let theme = active_theme();
         let ring_t = motion::ease_out_cubic((elapsed / 0.55).clamp(0.0, 1.0));
-        let ring_r = size * (0.56 + 0.08 * ring_t);
+        let ring_r = size * (0.54 + 0.06 * ring_t);
         self.rounded(
             cx - ring_r,
             cy - ring_r,
             ring_r * 2.0,
             ring_r * 2.0,
-            ring_r * 0.36,
-            color::with_alpha(theme.accent, 0.14 * ring_t * a),
+            ring_r * 0.32,
+            color::with_alpha(theme.accent, 0.12 * ring_t * a),
         );
         self.stroke_rounded(
             cx - ring_r,
             cy - ring_r,
             ring_r * 2.0,
             ring_r * 2.0,
-            ring_r * 0.36,
+            ring_r * 0.32,
             1.5,
             color::with_alpha(theme.accent, 0.38 * ring_t * a),
         );
 
-        let plate_r = size * 0.46;
+        let plate_r = size * 0.45;
         self.rounded(
             cx - plate_r,
             cy - plate_r,
             plate_r * 2.0,
             plate_r * 2.0,
-            plate_r * 0.32,
-            color::with_alpha(theme.surface, 0.94 * a),
+            plate_r * 0.28,
+            color::with_alpha(theme.surface, 0.95 * a),
         );
         self.stroke_rounded(
             cx - plate_r,
             cy - plate_r,
             plate_r * 2.0,
             plate_r * 2.0,
-            plate_r * 0.32,
+            plate_r * 0.28,
             1.4,
             color::with_alpha(theme.border_strong, 0.85 * a),
         );
 
-        let t_left = motion::ease_out_quint((elapsed / 0.42).clamp(0.0, 1.0));
-        let t_right = motion::ease_out_quint(((elapsed - 0.08).max(0.0) / 0.42).clamp(0.0, 1.0));
-        let t_bridge = motion::spring_spatial(((elapsed - 0.16).max(0.0) / 0.48).clamp(0.0, 1.0));
+        let t_wing = motion::ease_out_quint((elapsed / 0.44).clamp(0.0, 1.0));
+        let t_cross = motion::spring_spatial(((elapsed - 0.12).max(0.0) / 0.46).clamp(0.0, 1.0));
 
-        let bar_w = (size * 0.135).max(3.0);
-        let bar_h = (size * 0.56).max(10.0);
-        let bar_r = bar_w * 0.5;
-        let offset_x = size * 0.185;
+        let dot_w = (size * 0.10).max(3.0);
+        let top_x = cx;
+        let top_y = cy - size * 0.28;
+        let left_x = cx - size * 0.26;
+        let left_y = cy + size * 0.26;
+        let right_x = cx + size * 0.26;
+        let right_y = cy + size * 0.26;
 
-        // Left pillar sliding up into place
-        let left_slide = (1.0 - t_left) * (size * 0.24);
-        self.rounded(
-            cx - offset_x - bar_w * 0.5,
-            cy - bar_h * 0.5 + left_slide,
-            bar_w,
-            bar_h,
-            bar_r,
-            color::with_alpha(theme.text_primary, t_left * a),
-        );
+        // Animate left wing slicing up to apex peak
+        let steps = 14usize;
+        let active_steps = ((steps as f32 * t_wing).ceil() as usize).clamp(1, steps);
+        for i in 0..active_steps {
+            let f = i as f32 / (steps.saturating_sub(1).max(1) as f32);
+            let px = left_x + (top_x - left_x) * f;
+            let py = left_y + (top_y - left_y) * f;
+            self.rounded(
+                px - dot_w * 0.5,
+                py - dot_w * 0.5,
+                dot_w,
+                dot_w,
+                dot_w * 0.45,
+                color::with_alpha(theme.text_primary, t_wing * a),
+            );
+        }
 
-        // Right pillar sliding down into place
-        let right_slide = -(1.0 - t_right) * (size * 0.24);
-        self.rounded(
-            cx + offset_x - bar_w * 0.5,
-            cy - bar_h * 0.5 + right_slide,
-            bar_w,
-            bar_h,
-            bar_r,
-            color::with_alpha(theme.accent, t_right * a),
-        );
+        // Animate right wing slicing up to apex peak (accent color)
+        for i in 0..active_steps {
+            let f = i as f32 / (steps.saturating_sub(1).max(1) as f32);
+            let px = right_x + (top_x - right_x) * f;
+            let py = right_y + (top_y - right_y) * f;
+            self.rounded(
+                px - dot_w * 0.5,
+                py - dot_w * 0.5,
+                dot_w,
+                dot_w,
+                dot_w * 0.45,
+                color::with_alpha(theme.accent, t_wing * a),
+            );
+        }
 
-        // Tilted horizon bridge sweeping across from left pillar to right pillar
-        if t_bridge > 0.02 {
-            let x0 = cx - offset_x;
-            let y0 = cy + size * 0.065;
-            let x1 = cx + offset_x;
-            let y1 = cy - size * 0.065;
-            let steps = 15usize;
-            let active_steps = ((steps as f32 * t_bridge).ceil() as usize).clamp(1, steps);
-            let dot_d = (bar_w * 0.92).max(2.5);
-            for i in 0..active_steps {
-                let f = i as f32 / (steps.saturating_sub(1).max(1) as f32);
-                let px = x0 + (x1 - x0) * f;
-                let py = y0 + (y1 - y0) * f;
-                self.rounded(
-                    px - dot_d * 0.5,
-                    py - dot_d * 0.5,
-                    dot_d,
-                    dot_d,
-                    dot_d * 0.5,
-                    color::with_alpha(theme.accent, t_bridge * a),
-                );
-            }
+        // Cyber horizontal crossbar and center core
+        if t_cross > 0.02 {
+            let cross_y = cy + size * 0.05;
+            let cross_hw = size * 0.16 * t_cross;
+            let bar_h = dot_w * 0.85;
+            self.rounded(
+                cx - cross_hw,
+                cross_y - bar_h * 0.5,
+                cross_hw * 2.0,
+                bar_h,
+                bar_h * 0.45,
+                color::with_alpha(theme.accent, t_cross * a),
+            );
+
+            // Floating glowing energy core in crossbar
+            let core_d = dot_w * 1.35;
+            self.rounded(
+                cx - core_d * 0.5,
+                cross_y - core_d * 0.5,
+                core_d,
+                core_d,
+                core_d * 0.5,
+                color::with_alpha(0xFFFFFF, t_cross * a),
+            );
+        }
+
+        // Razor highlight tip at apex peak
+        if t_wing > 0.5 {
+            let peak_d = dot_w * 1.1;
+            self.rounded(
+                top_x - peak_d * 0.5,
+                top_y - peak_d * 0.5,
+                peak_d,
+                peak_d,
+                peak_d * 0.5,
+                color::with_alpha(0xFFFFFF, (t_wing - 0.5) * 2.0 * a),
+            );
         }
     }
 
-    /// Renders a clean, modern, minimal animated Horizon intro screen centered on the
-    /// procedural Horizon `H` logo with real initialization progress and smooth cross-dissolve.
+    /// Renders a clean, modern, minimal animated Apex intro screen centered on the
+    /// procedural Apex Chevron mark with real initialization progress and smooth cross-dissolve.
     pub fn draw_horizon_intro(&mut self, elapsed: f32, loading_progress: f32, status_text: &str) {
         let real_prog = loading_progress.clamp(0.0, 1.0);
         let dissolve = if real_prog >= 0.999 && elapsed > 1.15 {
@@ -1985,7 +2050,7 @@ impl<'a> Ui<'a> {
                 cx,
                 title_y,
                 color::with_alpha(theme.text_primary, title_t),
-                "HORIZON",
+                "APEX",
             );
             let sub_y = title_y + 32.0;
             self.text_centered(
@@ -1993,8 +2058,8 @@ impl<'a> Ui<'a> {
                 11.5,
                 cx,
                 sub_y,
-                color::with_alpha(theme.text_muted, title_t * 0.9),
-                "RUST EDITION  •  ANDROID LAUNCHER",
+                color::with_alpha(theme.accent, title_t * 0.95),
+                "COMPETITIVE CLIENT  •  26.3",
             );
 
             // Real initialization progress indicator
@@ -2076,39 +2141,37 @@ fn wordmark(atlas: &HudAtlas, batch: &mut HudBatch) {
     let top = (ui.h - block) / 2.0;
     let cx = ui.w / 2.0;
 
-    // Crisp vector H mark centered symmetrically above the wordmark
+    // Crisp vector Apex mark centered symmetrically above the wordmark
     let mark_s = (size * 0.62).clamp(28.0, 52.0);
     let mark_cy = (top - mark_s * 0.72).max(mark_s * 0.6);
-    let bar_w = (mark_s * 0.14).max(3.0);
-    let bar_h = (mark_s * 0.56).max(10.0);
-    let off_x = mark_s * 0.18;
+    let dot_w = (mark_s * 0.12).max(3.0);
     let accent = active_theme().accent;
-    ui.rounded(
-        cx - off_x - bar_w * 0.5,
-        mark_cy - bar_h * 0.5,
-        bar_w,
-        bar_h,
-        bar_w * 0.5,
-        BOOT_TEXT,
-    );
-    ui.rounded(
-        cx + off_x - bar_w * 0.5,
-        mark_cy - bar_h * 0.5,
-        bar_w,
-        bar_h,
-        bar_w * 0.5,
-        accent,
-    );
-    ui.rounded(
-        cx - off_x,
-        mark_cy - bar_w * 0.45,
-        off_x * 2.0,
-        bar_w * 0.9,
-        bar_w * 0.45,
-        accent,
-    );
 
-    ui.text_centered(Face::SemiBold, size, cx, top, BOOT_TEXT, "Horizon");
+    // Left and right wings meeting at apex tip
+    let top_x = cx;
+    let top_y = mark_cy - mark_s * 0.28;
+    let left_x = cx - mark_s * 0.25;
+    let left_y = mark_cy + mark_s * 0.25;
+    let right_x = cx + mark_s * 0.25;
+    let right_y = mark_cy + mark_s * 0.25;
+
+    let steps = 10usize;
+    for i in 0..steps {
+        let f = i as f32 / (steps.saturating_sub(1).max(1) as f32);
+        let px1 = left_x + (top_x - left_x) * f;
+        let py1 = left_y + (top_y - left_y) * f;
+        ui.rounded(px1 - dot_w * 0.5, py1 - dot_w * 0.5, dot_w, dot_w, dot_w * 0.45, BOOT_TEXT);
+
+        let px2 = right_x + (top_x - right_x) * f;
+        let py2 = right_y + (top_y - right_y) * f;
+        ui.rounded(px2 - dot_w * 0.5, py2 - dot_w * 0.5, dot_w, dot_w, dot_w * 0.45, accent);
+    }
+    // Crossbar
+    let cross_y = mark_cy + mark_s * 0.05;
+    let cross_hw = mark_s * 0.15;
+    ui.rounded(cx - cross_hw, cross_y - dot_w * 0.4, cross_hw * 2.0, dot_w * 0.8, dot_w * 0.4, accent);
+
+    ui.text_centered(Face::SemiBold, size, cx, top, BOOT_TEXT, "Apex");
     let sub_y = top + size * 1.45 + small * 0.6;
     ui.text_centered(
         Face::Mono,
@@ -2116,7 +2179,7 @@ fn wordmark(atlas: &HudAtlas, batch: &mut HudBatch) {
         cx,
         sub_y,
         BOOT_LOG,
-        "Rust based minecraft client",
+        "Apex Competitive Client",
     );
 
     // Symmetrical centered startup progress bar below the tagline
@@ -2243,7 +2306,7 @@ impl ThemePreset {
 
     pub fn subtitle(self) -> &'static str {
         match self {
-            Self::ObsidianViolet => "Signature Horizon dark violet",
+            Self::ObsidianViolet => "Signature Apex Cyber Crimson",
             Self::CyberCyan => "Deep slate with electric cyan",
             Self::EmeraldForest => "Woodland moss with emerald mint",
             Self::CrimsonEmber => "Obsidian ruby with warm coral",

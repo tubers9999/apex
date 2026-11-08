@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   build-apk:
-    name: Build & Release Horizon Android ARM64 APK
+    name: Build & Release Apex Android ARM64 APK
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
@@ -47,7 +47,7 @@ jobs:
           else:
               subprocess.run(['keytool', '-genkeypair', '-keystore', str(path), '-storepass', 'android',
                               '-keypass', 'android', '-alias', 'androiddebugkey', '-keyalg', 'RSA',
-                              '-validity', '3650', '-dname', 'CN=Horizon Android,O=Horizon,C=US'], check=True)
+                              '-validity', '3650', '-dname', 'CN=Apex Android,O=Apex,C=US'], check=True)
               print('Generated fresh debug keystore.')
           PY
 
@@ -98,8 +98,6 @@ jobs:
         run: |
           mkdir -p dist
           cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/apex-arm64.apk
-          cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/apex-client-arm64.apk
-          cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/horizon-android-arm64.apk
           ls -lh dist/
 
       - name: Upload Artifact
@@ -115,7 +113,8 @@ jobs:
           cat << 'EOF' > release_notes.md
           ### [>] Apex (ARM64)
 
-          Minecraft Java Edition 26.3 ultra-fast Rust client ported to Android (based on Starling & Horizon engines).
+          Minecraft Java Edition 26.3 ultra-fast native Rust client for Android.
+          High-performance mobile rendering, custom touch engine, instant PvP hitmarkers.
 
           #### Features:
           - [+] Apex PvP Hitmarkers ("Ack" Sound): Instant punchy audio feedback when striking hostile mobs or players in PvP.
@@ -123,7 +122,7 @@ jobs:
           - [+] 1-Tap Ultra FPS Booster: Instantly toggle entity culling, cave culling, animated textures, and LOD optimizations for smooth 60-120+ FPS.
           - [+] Built-in Apex Cyber Synthwave BGM: Looping cyberpunk soundtrack playing directly out of the box with quick Mute/Play controls.
           - [+] Signature Apex Cyber Neon Theme: Deep crimson gradient with liquid glass sheen and glowing corner accents.
-          - [+] Mod Menu on Title & In-Game Screens: One-tap access to installed .hmod and .hnmod mods with live interactive ON/OFF toggles.
+          - [+] Mod Menu on Title & In-Game Screens: One-tap access to installed mods with live interactive ON/OFF toggles.
           - [+] Custom Media Pickers: Import wallpapers, videos, or audio straight from phone storage.
           - [+] Apex Control Hub & Touch System: Pojav & Bedrock touch controls, full HUD editor, virtual mouse, customizable button shapes.
           - [+] Live Performance Stats Overlay: Real-time FPS, frame timings (ms), CPU/GPU usage graph right on screen.
@@ -134,6 +133,6 @@ jobs:
           gh release delete v0.1 -y || true
           git tag -d v0.1 2>/dev/null || true
           git push origin :refs/tags/v0.1 2>/dev/null || true
-          gh release create v0.1 dist/apex-arm64.apk dist/horizon-android-arm64.apk \
+          gh release create v0.1 dist/apex-arm64.apk \
             --title "Apex (ARM64)" \
             --notes-file release_notes.md

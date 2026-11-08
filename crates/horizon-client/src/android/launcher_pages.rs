@@ -1098,6 +1098,81 @@ impl Launcher {
             return Ok(());
         }
 
+fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec<u8>)> {
+    static CACHE: std::sync::Mutex<Option<(std::time::SystemTime, u32, u32, Vec<u8>)>> =
+        std::sync::Mutex::new(None);
+    let mtime = std::fs::metadata(path).ok()?.modified().ok()?;
+    if let Ok(guard) = CACHE.lock() {
+        if let Some((cached_mtime, w, h, ref data)) = *guard {
+            if cached_mtime == mtime {
+                return Some((w, h, data.clone()));
+            }
+        }
+    }
+    let file = std::fs::File::open(path).ok()?;
+    let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).ok()?;
+    let (orig_w, orig_h) = (info.width, info.height);
+    if orig_w == 0 || orig_h == 0 {
+        return None;
+    }
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => buf[..info.buffer_size()].to_vec(),
+        png::ColorType::Rgb => {
+            let mut out = Vec::with_capacity((orig_w * orig_h * 4) as usize);
+            for chunk in buf[..info.buffer_size()].chunks_exact(3) {
+                out.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
+            }
+            out
+        }
+        png::ColorType::Grayscale => {
+            let mut out = Vec::with_capacity((orig_w * orig_h * 4) as usize);
+            for &g in &buf[..info.buffer_size()] {
+                out.extend_from_slice(&[g, g, g, 255]);
+            }
+            out
+        }
+        png::ColorType::GrayscaleAlpha => {
+            let mut out = Vec::with_capacity((orig_w * orig_h * 4) as usize);
+            for chunk in buf[..info.buffer_size()].chunks_exact(2) {
+                out.extend_from_slice(&[chunk[0], chunk[0], chunk[0], chunk[1]]);
+            }
+            out
+        }
+        _ => return None,
+    };
+    let max_w = 960u32;
+    let max_h = 540u32;
+    let (final_w, final_h, final_rgba) = if orig_w > max_w || orig_h > max_h {
+        let scale = (max_w as f32 / orig_w as f32).min(max_h as f32 / orig_h as f32);
+        let nw = ((orig_w as f32 * scale).round() as u32).max(1);
+        let nh = ((orig_h as f32 * scale).round() as u32).max(1);
+        let mut scaled = Vec::with_capacity((nw * nh * 4) as usize);
+        for y in 0..nh {
+            let src_y = ((y as f32 / nh as f32) * orig_h as f32) as u32;
+            for x in 0..nw {
+                let src_x = ((x as f32 / nw as f32) * orig_w as f32) as u32;
+                let src_idx = ((src_y * orig_w + src_x) * 4) as usize;
+                if src_idx + 4 <= rgba.len() {
+                    scaled.extend_from_slice(&rgba[src_idx..src_idx + 4]);
+                } else {
+                    scaled.extend_from_slice(&[0, 0, 0, 255]);
+                }
+            }
+        }
+        (nw, nh, scaled)
+    } else {
+        (orig_w, orig_h, rgba)
+    };
+    if let Ok(mut guard) = CACHE.lock() {
+        *guard = Some((mtime, final_w, final_h, final_rgba.clone()));
+    }
+    Some((final_w, final_h, final_rgba))
+}
+
         let mut b = HudBatch::new([r.config.width, r.config.height]);
         let mut ui = Ui::mobile(&gui.atlas, &mut b, (0.0, 0.0));
         // Keep ui.w and ui.h synchronized with Launcher::ui_density(). When the soft keyboard is
@@ -1110,10 +1185,33 @@ impl Launcher {
         };
         let (w, h) = (ui.w, ui.h);
         let active_th = horizon_client::ui_theme::active_theme();
-        ui.draw_theme_background(0.0, 0.0, w, h, &active_th);
+        let theme_bg_path = self.catalog.config.game_home(&self.home).join("theme/background.png");
+        let fallback_bg_path = self.home.join("theme/background.png");
+        let bg_path = if theme_bg_path.is_file() {
+            Some(theme_bg_path)
+        } else if fallback_bg_path.is_file() {
+            Some(fallback_bg_path)
+        } else {
+            None
+        };
+        let mut drew_wallpaper = false;
+        if let Some(path) = bg_path {
+            if let Some((pw, ph, rgba)) = load_custom_wallpaper_cached(&path) {
+                drew_wallpaper = ui.raw_image("theme/custom_background", pw, ph, rgba, 0.0, 0.0, w, h);
+            }
+        }
+        if !drew_wallpaper {
+            ui.draw_theme_background(0.0, 0.0, w, h, &active_th);
+        } else if active_th.liquid_glass {
+            // High-luminance frosted acrylic glass sheen over wallpaper
+            ui.fill(0.0, 0.0, w, h, horizon_client::ui_theme::color::with_alpha(active_th.surface, 0.28));
+            ui.fill(0.0, 0.0, w, 2.0, horizon_client::ui_theme::color::with_alpha(0xFFFFFF, 0.22));
+        }
 
         // ---- Top Header Bar (brand lockup ... account pill) ----
         ui.horizon_logo(18.0, 12.0, 28.0);
+        ui.text(Face::SemiBold, 15.0, 52.0, 16.0, active_th.accent, "APEX");
+        ui.text(Face::Medium, 10.0, 96.0, 18.0, active_th.text_muted, "CLIENT");
         let account_name = self
             .login
             .profile
@@ -1436,9 +1534,9 @@ impl Launcher {
                     content_x + 22.0,
                     card_y + 84.0,
                     my3_text(),
-                    "Horizon Android is becoming Starling",
+                    "Apex Competitive Client 26.3",
                 );
-                let notice = "Some Horizon Android features are still being transferred and merged. Export your worlds through Android Files (SAF) before moving.";
+                let notice = "High-performance native Rust engine tuned for mobile. Ultra-fast FPS, low latency touch controls, built-in PvP hitmarkers, and full mod support.";
                 let mut line_y = card_y + 108.0;
                 let font_size = 11.5;
                 let mut line = String::new();
@@ -1793,7 +1891,7 @@ impl Launcher {
                     content_x + 64.0,
                     y + 45.0,
                     my3_accent(),
-                    "Horizon Built-in • Tap for versions, Modrinth info & screenshots",
+                    "Apex Built-in • Tap for versions, Modrinth info & screenshots",
                 );
                 if let Some(c) = ui.clip_rect(card_rect) {
                     self.targets.push((c, Action::OpenBundledProject(id)));
@@ -4258,9 +4356,9 @@ impl Launcher {
                 let theme_cfg = self.catalog.config.theme.clone();
                 let resolved = theme_cfg.resolve();
                 let total_h = if theme_cfg.background_mode == BackgroundMode::Gradient {
-                    990.0
+                    1550.0
                 } else {
-                    880.0
+                    1450.0
                 };
                 let extra_ime = if ime_top_dp.is_some() { 200.0 } else { 0.0 };
                 let max_scroll = (total_h + extra_ime - (list_bottom - list_top)).max(0.0);
@@ -5778,7 +5876,7 @@ impl Launcher {
                         slug: (*id).to_owned(),
                         title: (*title).to_owned(),
                         summary: (*desc).to_owned(),
-                        author: "Horizon Built-in".into(),
+                        author: "Apex Built-in".into(),
                         downloads: 0,
                         icon: None,
                         page: String::new(),
@@ -6853,7 +6951,7 @@ impl Launcher {
                 horizon_client::ui_theme::set_active_theme(self.catalog.config.theme.resolve());
                 self.anim.trigger_theme_pulse();
                 self.catalog.config.save(&self.home)?;
-                self.catalog.status = "Theme reset to Horizon default (Obsidian Violet).".into();
+                self.catalog.status = "Theme reset to Apex default (Obsidian Crimson).".into();
             }
             Some(Action::ToggleLiquidGlass) => {
                 self.catalog.config.theme.liquid_glass = !self.catalog.config.theme.liquid_glass;

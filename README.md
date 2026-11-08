@@ -21,7 +21,7 @@
 [![Target](https://img.shields.io/badge/Minecraft-Java%2026.3-5D9C3F?style=flat-square)](#system-requirements)
 [![License](https://img.shields.io/badge/License-MIT-blueviolet?style=flat-square)](LICENSE)
 
-[Download APK](https://github.com/tubers9999/apex/releases) · [Build Instructions](docs/android.md) · [Issue Tracker](https://github.com/tubers9999/apex/issues) · [Contributing](CONTRIBUTING_ANDROID.md)
+[Download APK](https://github.com/tubers9999/apex/releases) · [Release Notes](https://github.com/tubers9999/apex/releases/latest) · [Issue Tracker](https://github.com/tubers9999/apex/issues)
 
 </div>
 
@@ -128,29 +128,17 @@ Android/data/dev.horizon.android/files/
 
 ---
 
-## [>] Building from Source
+## [>] Installation & Setup
 
-Apex utilizes a multi-stage compilation toolchain combining Rust (`cargo`), the Android NDK, and Gradle:
-
-```bash
-# Clone the repository
-git clone https://github.com/tubers9999/apex.git
-cd apex
-
-# Prepare private engine resources from Mojang downloads
-python3 tools/android_prepare.py --java-home "$JAVA_HOME"
-
-# Compile release APK for ARM64
-python3 tools/android_build.py --abi arm64-v8a --public --profile release
-```
-
-Detailed toolchain prerequisites and cross-compilation guides are documented in [docs/android.md](docs/android.md).
+1. Head over to the [Apex Releases](https://github.com/tubers9999/apex/releases) tab.
+2. Download the latest compiled **`apex-arm64.apk`** binary directly to your Android device.
+3. Open the APK on your device to install (allow *Install unknown apps* if prompted).
+4. Launch **Apex**, choose your preferred touch layout (MCPE or GoyControl), customize your theme and hit markers, and jump straight into Java 26.3 worlds and servers!
 
 ---
 
-## [>] Licence & Copyright
+## [>] License & Copyright
 
-**Copyright (c) 2026 RedGlitchX. All rights reserved.**  
-Original engine work Copyright (c) 2026 Ludovic Marie and the Horizon contributors under the [MIT License](LICENSE).
+**Copyright (c) 2026 RedGlitchX. All rights reserved.**
 
 Dependencies retain their respective licenses as enumerated in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Minecraft is a registered trademark of Mojang Synergies AB. This project is not affiliated with or endorsed by Mojang or Microsoft.

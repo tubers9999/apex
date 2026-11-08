@@ -745,11 +745,11 @@ impl Catalog {
                     horizon_client::content_files::Kind::Shaders => "SHADER",
                 };
                 let ext_tag = if name.ends_with(".hmod") {
-                    "Horizon Mod (.hmod)"
+                    "Apex Mod (.hmod)"
                 } else if name.ends_with(".jar") {
                     "Java Mod (.jar)"
                 } else if name.ends_with(".hshader") {
-                    "Horizon Shader (.hshader)"
+                    "Apex Shader (.hshader)"
                 } else if kind == horizon_client::content_files::Kind::Shaders {
                     "Shader Pack (.zip)"
                 } else {
@@ -857,7 +857,7 @@ impl Catalog {
                     size_bytes,
                     badge: "MOD",
                     subtitle: format!(
-                        "Horizon Native Mod (.hnmod)  •  {}  •  {name}",
+                        "Apex Native Mod (.hnmod)  •  {}  •  {name}",
                         format_file_size(size_bytes)
                     ),
                 });
