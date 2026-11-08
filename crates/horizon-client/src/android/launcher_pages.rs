@@ -1113,7 +1113,7 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
     let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info().ok()?;
-    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let mut buf = vec![0u8; reader.output_buffer_size()?];
     let info = reader.next_frame(&mut buf).ok()?;
     let (orig_w, orig_h) = (info.width, info.height);
     if orig_w == 0 || orig_h == 0 {
