@@ -2733,7 +2733,7 @@ impl TouchUi {
             dx + 52.0,
             dy + 8.0,
             text_c,
-            "Horizon Control Hub",
+            "Apex Control Hub",
         );
         ui.text(
             Face::Regular,

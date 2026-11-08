@@ -97,38 +97,38 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p dist
+          cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/apex-client-arm64.apk
           cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/horizon-android-arm64.apk
-          ls -lh dist/horizon-android-arm64.apk
+          ls -lh dist/
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: horizon-android-arm64.apk
-          path: dist/horizon-android-arm64.apk
+          name: apex-client-arm64.apk
+          path: dist/apex-client-arm64.apk
 
       - name: Publish to GitHub Releases (v0.1)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cat << 'EOF' > release_notes.md
-          ### 🎮 Horizon Android (ARM64) — Full Engine + Touch Controls + Shaders
+          ### ⚡ Apex Client (ARM64) — by RedGlitchX
 
-          Minecraft Java Edition 26.3 Rust client ported to Android by **RedGlitchX** (based on Horizon & Starling).
+          Minecraft Java Edition 26.3 ultra-fast Rust client ported to Android by **RedGlitchX** (based on Starling & Horizon engines).
 
           #### 📱 Features:
-          - **Full Engine & Assets Bundled:** Prepared assets & textures downloaded directly from Mojang.
-          - **Pojav & Bedrock Touch Controls:** Complete on-screen controls, HUD editor, virtual mouse, D-Pad, Jump, Sneak, Sprint, and Offhand Swap (`SWAP` / `F`).
-          - **Hotbar Long-Press Drop:** Hold any hotbar slot to drop items. Hold Shift on screen to drop the entire stack at once!
-          - **Quick Craft All:** Shift-tap the crafting output slot to craft all available items instantly!
-          - **Native Modding (`.hnmod` & `.hmod`):** Full support for Horizon native mods and Wasm mods.
-          - **Shader Pack Support:** Built-in shader pack support (`.hshader` and `.zip`) via Naga/WGSL!
-          - **GPU & Battery Optimizations:** Vulkan and GLES pipelines tuned for Qualcomm Adreno & ARM Mali GPUs with dynamic render scale.
-          - **Native Storage Access (SAF):** Android DocumentsProvider integrated — no more OS permission errors!
+          - **Apex Control Hub & Touch System:** Pojav & Bedrock touch controls, full HUD editor, virtual mouse, customizable button shapes (Circle, Hexagon, Octagon, Square, Diamond), custom colors and opacity.
+          - **Live Performance Stats Overlay:** Real-time FPS, frame timings (ms), CPU/GPU usage graph right on screen.
+          - **Fast Cold Boot:** Instant startup with bundled assets pre-cached.
+          - **Shader Pack Support:** Naga/WGSL shader engine tuned for Mali & Adreno mobile GPUs.
+          - **Native Modding (`.hnmod` & `.hmod`):** Full native mod loading out of the box.
+          - **Hotbar Long-Press Drop & Quick Craft All:** Shift-tap to craft all, hold slot to drop single/stack items.
+          - **Native Storage Access (SAF):** Android DocumentsProvider integrated seamlessly.
           EOF
 
           gh release delete v0.1 -y || true
           git tag -d v0.1 2>/dev/null || true
           git push origin :refs/tags/v0.1 2>/dev/null || true
-          gh release create v0.1 dist/horizon-android-arm64.apk \
-            --title "Horizon Android (ARM64) with Pojav/Bedrock Controls & Shaders" \
+          gh release create v0.1 dist/apex-client-arm64.apk dist/horizon-android-arm64.apk \
+            --title "Apex Client (ARM64) — RedGlitchX Edition" \
             --notes-file release_notes.md
