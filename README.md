@@ -1,22 +1,29 @@
-# Apex Client — RedGlitchX Edition
+```
+    _    ____  _______  __
+   / \  |  _ \| ____\ \/ /
+  / _ \ | |_) |  _|  \  / 
+ / ___ \|  __/| |___ /  \ 
+/_/   \_\_|   |_____/_/\_\
+```
 
-A high-performance native Android client for Minecraft Java 26.3 with GoyControl, MCPE schemes, native `.hmod` mods, custom shaders, and competitive PvP features. Ported and enhanced by **RedGlitchX**.
+# Apex
+
+A high-performance native Android client for Minecraft Java 26.3 with GoyControl, MCPE schemes, native `.hmod` mods, custom shaders, and competitive PvP features.
 
 **Android 9+ · Vulkan · Keystrokes & CPS · Ultra FPS Booster · PvP Hitmarkers · GoyControl & MCPE · Sandboxed `.hmod` Mods · Cyber Theme & BGM**
 
-[Download APK](https://github.com/tubers9999/apex/releases) · [Build & play](docs/android.md) · [Contribute](CONTRIBUTING_ANDROID.md) ·
-[Report an Android bug](https://github.com/tubers9999/apex/issues/new?template=android-bug.yml)
+[Download APK](https://github.com/tubers9999/apex/releases) · [Build & play](docs/android.md) · [Contribute](CONTRIBUTING_ANDROID.md) · [Report an Android bug](https://github.com/tubers9999/apex/issues/new?template=android-bug.yml)
 
-## ⚡ RedGlitchX Exclusive Features
+## [+] Features
 
-- **🎯 Apex PvP Hitmarker Sound ("Ack"):** Instant, punchy audio feedback whenever you strike a hostile mob, aggressive creature, or enemy player in PvP.
-- **⌨️ Live Keystrokes & CPS HUD:** Real-time WASD + Spacebar visualizer with 1-second sliding-window CPS counters for Left & Right clicks, glowing in signature Apex Crimson (`#F51C48`).
-- **🚀 1-Tap Ultra FPS Booster:** Instantly toggle entity culling, cave culling, animated textures, and texture LOD optimizations for stable 60-120+ FPS on budget devices.
-- **🎵 Built-in Apex Cyber Synthwave BGM:** Looping cyberpunk synthwave soundtrack playing directly inside the launcher out-of-the-box (with quick Mute / Play controls).
-- **🌌 Signature Apex Cyber Launcher Theme:** Deep dark neon crimson gradient with procedural liquid glass sheen and subtle glowing corner accents.
-- **🧩 Mod Menu Direct Buttons:** Dedicated "Mods" buttons right on the Title Screen and In-Game Pause Screen with instant ON/OFF toggles.
-- **🖼️ Custom Media Pickers:** Import wallpapers (`background.png`), animated background video (`background.mp4`), or custom audio (`bgm.ogg`) straight from your phone files.
-- **🕹️ Glitch-Free Controls:** Fixed touch latching and stuck movements when switching presets on mobile screens.
+- **[+] Apex PvP Hitmarker Sound ("Ack"):** Instant, punchy audio feedback whenever you strike a hostile mob, aggressive creature, or enemy player in PvP.
+- **[+] Live Keystrokes & CPS HUD:** Real-time WASD + Spacebar visualizer with 1-second sliding-window CPS counters for Left & Right clicks, glowing in signature Apex Crimson (`#F51C48`).
+- **[+] 1-Tap Ultra FPS Booster:** Instantly toggle entity culling, cave culling, animated textures, and texture LOD optimizations for stable 60-120+ FPS on budget devices.
+- **[+] Built-in Apex Cyber Synthwave BGM:** Looping cyberpunk synthwave soundtrack playing directly inside the launcher out-of-the-box (with quick Mute / Play controls).
+- **[+] Signature Apex Cyber Launcher Theme:** Deep dark neon crimson gradient with procedural liquid glass sheen and subtle glowing corner accents.
+- **[+] Mod Menu Direct Buttons:** Dedicated "Mods" buttons right on the Title Screen and In-Game Pause Screen with instant ON/OFF toggles.
+- **[+] Custom Media Pickers:** Import wallpapers (`background.png`), animated background video (`background.mp4`), or custom audio (`bgm.ogg`) straight from your phone files.
+- **[+] Glitch-Free Controls:** Fixed touch latching and stuck movements when switching presets on mobile screens.
 
 ## What works
 

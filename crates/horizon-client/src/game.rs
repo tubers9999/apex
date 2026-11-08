@@ -11561,6 +11561,9 @@ impl Game<'_> {
                 let resources = self.vanilla_root();
                 self.ui.options.open_data_packs(dir, selected, resources);
             }
+            Action::Mods => {
+                self.open_options_at(true, horizon_client::options_ui::Page::Mods);
+            }
             Action::None => {}
         }
         Ok(())

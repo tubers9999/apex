@@ -611,7 +611,7 @@ impl TouchUi {
         &mut self,
         b: &mut HudBatch,
         a: &HudAtlas,
-        keys: &std::collections::BTreeSet<KeyCode>,
+        keys: &std::collections::HashSet<KeyCode>,
         lmb_down: bool,
         rmb_down: bool,
     ) {

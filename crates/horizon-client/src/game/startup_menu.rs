@@ -1883,34 +1883,6 @@ impl Loading {
                         self.settings.touch = self.menu.controls.settings.clone();
                         self.save_menu_settings();
                     }
-                    InGameMenuAction::ToggleKeystrokes => {
-                        self.menu.controls.settings.keystrokes_overlay =
-                            !self.menu.controls.settings.keystrokes_overlay;
-                        let _ = self.menu.controls.settings.save();
-                        self.settings.touch = self.menu.controls.settings.clone();
-                        self.settings.save(&Game::options_path());
-                    }
-                    InGameMenuAction::ToggleFpsBooster => {
-                        let next = !self.menu.controls.settings.fps_booster;
-                        self.menu.controls.settings.fps_booster = next;
-                        self.settings.horizon.entity_culling = next;
-                        self.settings.horizon.cave_culling = true;
-                        if next {
-                            self.settings.horizon.animated_textures = false;
-                            self.menu.controls.settings.disable_game_animations = true;
-                            horizon_client::ui_theme::motion::set_game_animations_disabled(true);
-                        } else {
-                            self.settings.horizon.animated_textures = true;
-                            self.menu.controls.settings.disable_game_animations = false;
-                            horizon_client::ui_theme::motion::set_game_animations_disabled(false);
-                        }
-                        let _ = self.menu.controls.settings.save();
-                        self.settings.touch = self.menu.controls.settings.clone();
-                        self.settings.save(&Game::options_path());
-                    }
-                    InGameMenuAction::OpenMods => {
-                        self.open_menu_options(horizon_client::options_ui::Page::Mods);
-                    }
                     InGameMenuAction::ToggleInventoryControls => {
                         self.menu.controls.settings.inventory_controls =
                             !self.menu.controls.settings.inventory_controls;
@@ -2097,34 +2069,6 @@ impl Loading {
                         let _ = self.menu.controls.settings.save();
                         self.settings.touch = self.menu.controls.settings.clone();
                         self.save_menu_settings();
-                    }
-                    InGameMenuAction::ToggleKeystrokes => {
-                        self.menu.controls.settings.keystrokes_overlay =
-                            !self.menu.controls.settings.keystrokes_overlay;
-                        let _ = self.menu.controls.settings.save();
-                        self.settings.touch = self.menu.controls.settings.clone();
-                        self.settings.save(&Game::options_path());
-                    }
-                    InGameMenuAction::ToggleFpsBooster => {
-                        let next = !self.menu.controls.settings.fps_booster;
-                        self.menu.controls.settings.fps_booster = next;
-                        self.settings.horizon.entity_culling = next;
-                        self.settings.horizon.cave_culling = true;
-                        if next {
-                            self.settings.horizon.animated_textures = false;
-                            self.menu.controls.settings.disable_game_animations = true;
-                            horizon_client::ui_theme::motion::set_game_animations_disabled(true);
-                        } else {
-                            self.settings.horizon.animated_textures = true;
-                            self.menu.controls.settings.disable_game_animations = false;
-                            horizon_client::ui_theme::motion::set_game_animations_disabled(false);
-                        }
-                        let _ = self.menu.controls.settings.save();
-                        self.settings.touch = self.menu.controls.settings.clone();
-                        self.settings.save(&Game::options_path());
-                    }
-                    InGameMenuAction::OpenMods => {
-                        self.open_menu_options(horizon_client::options_ui::Page::Mods);
                     }
                     InGameMenuAction::SendCustomInput(token) => {
                         self.startup_dispatch_custom_token(event_loop, &token, true);

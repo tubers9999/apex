@@ -5025,7 +5025,7 @@ impl Launcher {
                 if cy + 54.0 >= list_top && cy <= list_bottom {
                     ui.rounded(content_x, cy, content_w, 52.0, 12.0, my3_card_bg());
                     ui.border(content_x, cy, content_w, 52.0, 12.0, my3_card_border());
-                    ui.icon(Icon::Audio, content_x + 12.0, cy + 15.0, 22.0, my3_accent());
+                    ui.icon(Icon::Play, content_x + 12.0, cy + 15.0, 22.0, my3_accent());
                     ui.text(
                         Face::SemiBold,
                         12.0,

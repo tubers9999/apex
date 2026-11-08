@@ -1605,7 +1605,7 @@ impl Title {
                         200.0,
                         "Mods",
                         true,
-                        5,
+                        8,
                     ),
                     b(
                         cx - 100.0,
@@ -3245,7 +3245,7 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                 Action::None
             }
             (Mode::Main, Some(3)) => Action::Options,
-            (Mode::Main, Some(5)) => Action::Mods,
+            (Mode::Main, Some(8)) => Action::Mods,
             (Mode::Main, Some(7)) => Action::Accessibility,
             (Mode::Main, Some(6)) => Action::Language,
             (Mode::Select { worlds, selected }, Some(10)) => {
