@@ -1025,6 +1025,9 @@ impl Game<'_> {
                     self.settings.touch = self.pad.touch.settings.clone();
                     self.settings.save(&Self::options_path());
                 }
+                InGameMenuAction::OpenMods => {
+                    self.open_options_at(false, horizon_client::options_ui::Page::Mods);
+                }
                 InGameMenuAction::SendCustomInput(token) => {
                     self.android_sync_pointer();
                     self.android_custom_token_tap(&token);

@@ -598,9 +598,103 @@ impl Loading {
         if self.menu.options.pack_infos.is_empty() || page == Page::Packs {
             self.menu.options.pack_infos = packs::pack_infos(&self.vanilla_root, &[]);
         }
+        if self.settings.mods.installed.is_empty() || page == Page::Mods {
+            self.refresh_startup_mods();
+        }
         self.menu.options.pack_selection = self.settings.resource_packs.clone();
         self.menu.options.pack_screen = None;
         self.menu.options_open = true;
+    }
+
+    fn refresh_startup_mods(&mut self) {
+        use horizon_client::mod_list::{Installed, NativePage, ANDROID_BUNDLED, DIR, NATIVE_DIR};
+        let mut list = Vec::new();
+        for &(id, title, desc) in &ANDROID_BUNDLED {
+            list.push(Installed {
+                id: id.into(),
+                title: format!("{title} 1.0"),
+                description: desc.into(),
+                problem: None,
+                dev: false,
+                has_settings: true,
+                native: Some(NativePage {
+                    keys: match id {
+                        "zoom" => vec![["zoom".into(), "Zoom key".into(), "key.keyboard.c".into()]],
+                        "minimap" => vec![["minimap".into(), "Toggle minimap".into(), "key.keyboard.m".into()]],
+                        "recipes" => vec![["recipes".into(), "Toggle recipes".into(), "key.keyboard.r".into()]],
+                        "smartf3" => vec![["smartf3".into(), "SmartF3 overlay".into(), "key.keyboard.f3".into()]],
+                        _ => Vec::new(),
+                    },
+                    buttons: Vec::new(),
+                }),
+            });
+        }
+        let mods_dir = self.menu.root.join(DIR);
+        if let Ok(entries) = std::fs::read_dir(&mods_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+                if !file_name.ends_with(".hmod")
+                    && !file_name.ends_with(".hnmod")
+                    && !file_name.ends_with(".jar")
+                    && !file_name.ends_with(".zip")
+                {
+                    continue;
+                }
+                let id = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                if list.iter().any(|m| m.id == id) {
+                    continue;
+                }
+                list.push(Installed {
+                    id: id.clone(),
+                    title: format!("{id} 1.0"),
+                    description: format!("Mod file: {DIR}/{file_name}"),
+                    problem: None,
+                    dev: false,
+                    has_settings: true,
+                    native: Some(NativePage {
+                        keys: Vec::new(),
+                        buttons: Vec::new(),
+                    }),
+                });
+            }
+        }
+        let native_dir = self.menu.root.join(NATIVE_DIR);
+        if let Ok(entries) = std::fs::read_dir(&native_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+                if !file_name.ends_with(".hnmod")
+                    && !file_name.ends_with(".hmod")
+                    && !file_name.ends_with(".jar")
+                {
+                    continue;
+                }
+                let id = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                if list.iter().any(|m| m.id == id) {
+                    continue;
+                }
+                list.push(Installed {
+                    id: id.clone(),
+                    title: format!("{id} (native)"),
+                    description: format!("Native mod: {NATIVE_DIR}/{file_name}"),
+                    problem: None,
+                    dev: false,
+                    has_settings: true,
+                    native: Some(NativePage {
+                        keys: Vec::new(),
+                        buttons: Vec::new(),
+                    }),
+                });
+            }
+        }
+        self.settings.mods.installed = list;
     }
 
     fn menu_option_events(&mut self, events: Vec<Event>) {
@@ -703,7 +797,9 @@ impl Loading {
                     &mut self.menu.narrator_toast,
                 ),
                 // Mods' settings pages open only in a running game.
-                Event::ModSettings(_) | Event::NativeSettings(_) | Event::NativeButton(..) => {}
+                Event::ModSettings(_) | Event::NativeSettings(_) | Event::NativeButton(..) => {
+                    self.save_menu_settings();
+                }
                 // The startup menu runs before the game opens a control socket.
                 Event::ButtonClick => {
                     #[cfg(target_os = "android")]
@@ -780,6 +876,7 @@ impl Loading {
         match action {
             Action::Quit => crate::game::exit_app(event_loop),
             Action::Options => self.open_menu_options(Page::Main),
+            Action::Mods => self.open_menu_options(Page::Mods),
             Action::Accessibility => self.open_menu_options(Page::Accessibility),
             Action::Language => self.open_menu_options(Page::Language),
             Action::Sounds => self.open_menu_options(Page::Sound),
@@ -1728,6 +1825,9 @@ impl Loading {
                         self.settings.touch = self.menu.controls.settings.clone();
                         self.save_menu_settings();
                     }
+                    InGameMenuAction::OpenMods => {
+                        self.open_menu_options(horizon_client::options_ui::Page::Mods);
+                    }
                     InGameMenuAction::ToggleLeftHanded => {
                         self.menu.controls.settings.left_handed =
                             !self.menu.controls.settings.left_handed;
@@ -1742,6 +1842,9 @@ impl Loading {
                         let _ = self.menu.controls.settings.save();
                         self.settings.touch = self.menu.controls.settings.clone();
                         self.save_menu_settings();
+                    }
+                    InGameMenuAction::OpenMods => {
+                        self.open_menu_options(horizon_client::options_ui::Page::Mods);
                     }
                     InGameMenuAction::ToggleInventoryControls => {
                         self.menu.controls.settings.inventory_controls =
@@ -1777,6 +1880,9 @@ impl Loading {
                         let _ = self.menu.controls.settings.save();
                         self.settings.touch = self.menu.controls.settings.clone();
                         self.save_menu_settings();
+                    }
+                    InGameMenuAction::OpenMods => {
+                        self.open_menu_options(horizon_client::options_ui::Page::Mods);
                     }
                     InGameMenuAction::ToggleGyro => {
                         self.menu.controls.settings.gyroscope =
@@ -1901,6 +2007,9 @@ impl Loading {
                         let _ = self.menu.controls.settings.save();
                         self.settings.touch = self.menu.controls.settings.clone();
                         self.save_menu_settings();
+                    }
+                    InGameMenuAction::OpenMods => {
+                        self.open_menu_options(horizon_client::options_ui::Page::Mods);
                     }
                     InGameMenuAction::SendCustomInput(token) => {
                         self.startup_dispatch_custom_token(event_loop, &token, true);

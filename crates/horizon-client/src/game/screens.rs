@@ -84,6 +84,8 @@ fn pause_buttons(
     } else if links {
         // CommonDialogData.computeExternalTitle of Dialogs.SERVER_LINKS.
         v.push((x0 + 4.0, y0 + 122.0, 204.0, "menu.server_links", 11, true));
+    } else {
+        v.push((x0 + 4.0, y0 + 98.0, 204.0, "Mods", 15, true));
     }
     v.extend([
         (x0 + 4.0, y0 + 122.0 + down, 98.0, "menu.options", 1, true),
@@ -333,6 +335,7 @@ impl Game<'_> {
                 self.capture(true);
             }
             1 => self.open_options(false),
+            15 => self.open_options_at(false, horizon_client::options_ui::Page::Mods),
             3 => self.open_stats(),
             4 => self.open_advancements(true),
             9 => self.open_world_options(),

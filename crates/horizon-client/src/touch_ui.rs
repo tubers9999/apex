@@ -171,6 +171,8 @@ pub enum InGameMenuAction {
     ToggleGameAnimations,
     /// Toggle performance stats overlay (FPS, frame time ms, CPU/GPU, frame graph).
     ToggleStats,
+    /// Open the Mods and mod settings configuration screen.
+    OpenMods,
     /// Send a custom keyboard key, mouse button/scroll, or gameplay action token immediately.
     SendCustomInput(String),
 }
@@ -2395,6 +2397,11 @@ impl TouchUi {
                 if inside([cx, stats_y, cw, 46.0]) {
                     return Some(InGameMenuAction::ToggleStats);
                 }
+                let mods_y = body_y + 446.0;
+                if inside([cx, mods_y, cw, 46.0]) {
+                    self.floating_menu = false;
+                    return Some(InGameMenuAction::OpenMods);
+                }
             }
             1 => {
                 // Tab 1: Controls
@@ -2798,7 +2805,7 @@ impl TouchUi {
         // Scrollable Right Content Panel with scissor clip and tab transition slide
         let tab_slide = (1.0 - tab_ease) * 14.0;
         let content_height = match self.hub_tab {
-            0 => 450.0,
+            0 => 510.0,
             1 => 368.0,
             2 => 410.0,
             3 => 242.0,
@@ -3084,6 +3091,14 @@ impl TouchUi {
                     "Live FPS counter, frame time ms, CPU/GPU latency & frame graph",
                     Some(settings.stats_overlay != 0),
                     Some(stats_lbl),
+                );
+                draw_toggle_row(
+                    &mut ui,
+                    body_y + 446.0,
+                    "Mod Menu & Settings",
+                    "Configure native .hnmod, .hmod & active client mods",
+                    None,
+                    Some("Open >"),
                 );
             }
             1 => {

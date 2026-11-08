@@ -2510,32 +2510,39 @@ impl OptionsUi {
             return Vec::new();
         };
         let mut rows = vec![Row::Note(m.title.clone())];
-        let Some(page) = &m.native else {
-            return rows;
-        };
-        let chosen = s.mods.keys.get(&m.id);
-        for (k, [name, label, default]) in page.keys.iter().enumerate() {
-            let key = chosen.and_then(|c| c.get(name)).unwrap_or(default);
-            let mut message = keybinds::display_name(key);
-            if self.selected_native_key == Some((i, k)) {
-                message = Text::literal("> ")
-                    .append(message.with_color(text::WHITE))
-                    .append(" <")
-                    .with_color(text::YELLOW);
-            }
-            let caption = button(0.0, 0.0, 150.0, Text::literal(label.clone()), Act::None);
-            let change = button(0.0, 0.0, 150.0, message, Act::NativeKey(i, k));
-            rows.push(Row::Buttons(inactive(caption), Some(change)));
+        let toggle_label = Text::literal(format!("{}: ", m.id)).append(on_off(s.mods.is_on(i)));
+        rows.push(Row::Buttons(
+            button(0.0, 0.0, 310.0, toggle_label, Act::ToggleMod(i)),
+            None,
+        ));
+        if !m.description.is_empty() {
+            rows.push(Row::Note(m.description.clone()));
         }
-        for (b, label) in page.buttons.iter().enumerate() {
-            let widget = button(
-                0.0,
-                0.0,
-                310.0,
-                Text::literal(label.clone()),
-                Act::NativeButton(i, b),
-            );
-            rows.push(Row::Buttons(widget, None));
+        if let Some(page) = &m.native {
+            let chosen = s.mods.keys.get(&m.id);
+            for (k, [name, label, default]) in page.keys.iter().enumerate() {
+                let key = chosen.and_then(|c| c.get(name)).unwrap_or(default);
+                let mut message = keybinds::display_name(key);
+                if self.selected_native_key == Some((i, k)) {
+                    message = Text::literal("> ")
+                        .append(message.with_color(text::WHITE))
+                        .append(" <")
+                        .with_color(text::YELLOW);
+                }
+                let caption = button(0.0, 0.0, 150.0, Text::literal(label.clone()), Act::None);
+                let change = button(0.0, 0.0, 150.0, message, Act::NativeKey(i, k));
+                rows.push(Row::Buttons(inactive(caption), Some(change)));
+            }
+            for (b, label) in page.buttons.iter().enumerate() {
+                let widget = button(
+                    0.0,
+                    0.0,
+                    310.0,
+                    Text::literal(label.clone()),
+                    Act::NativeButton(i, b),
+                );
+                rows.push(Row::Buttons(widget, None));
+            }
         }
         rows
     }
