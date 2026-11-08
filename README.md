@@ -1,23 +1,29 @@
-+--------------------------------------------------------------------+
-|                                                                    |
-|    █████╗ ██████╗ ███████╗██╗  ██╗                                 |
-|   ██╔══██╗██╔══██╗██╔════╝╚██╗██╔╝                                 |
-|   ███████║██████╔╝█████╗   ╚███╔╝     A P E X   C L I E N T        |
-|   ██╔══██║██╔═══╝ ██╔══╝   ██╔██╗     [ RUST · VULKAN · 26.3 ]     |
-|   ██║  ██║██║     ███████╗██╔╝ ██╗                                 |
-|   ╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝                                 |
-|                                                                    |
-|   Ultra-Performance Minecraft Java Edition Client for Android      |
-+--------------------------------------------------------------------+
+<div align="center">
 
-[![Platform](https://img.shields.io/badge/Platform-Android%209%2B%20(API%2028%2B)-2ea44f?style=flat-square)](#requirements)
-[![Architecture](https://img.shields.io/badge/Architecture-ARM64--v8a-blue?style=flat-square)](#requirements)
-[![Engine](https://img.shields.io/badge/Engine-Native%20Rust%202024-B7410E?style=flat-square&logo=rust&logoColor=white)](#architecture)
-[![Renderer](https://img.shields.io/badge/Renderer-Vulkan%201.1%2B-red?style=flat-square&logo=vulkan&logoColor=white)](#architecture)
-[![Target](https://img.shields.io/badge/Minecraft-Java%2026.3-5D9C3F?style=flat-square)](#architecture)
+```
+  █████╗ ██████╗ ███████╗██╗  ██╗
+ ██╔══██╗██╔══██╗██╔════╝╚██╗██╔╝
+ ███████║██████╔╝█████╗   ╚███╔╝ 
+ ██╔══██║██╔═══╝ ██╔══╝   ██╔██╗ 
+ ██║  ██║██║     ███████╗██╔╝ ██╗
+ ╚═╝  ╚═╝╚═╝     ╚══════╝╚═╝  ╚═╝
+```
+
+# Apex
+
+**High-Performance Native Android Client for Minecraft Java 26.3**  
+*Pure Ahead-of-Time Rust · Direct Vulkan Pipeline · Zero JVM Overhead*
+
+[![Platform](https://img.shields.io/badge/Platform-Android%209%2B%20(API%2028%2B)-2ea44f?style=flat-square)](#system-requirements)
+[![Architecture](https://img.shields.io/badge/Architecture-ARM64--v8a-blue?style=flat-square)](#system-requirements)
+[![Engine](https://img.shields.io/badge/Engine-Native%20Rust%202024-B7410E?style=flat-square&logo=rust&logoColor=white)](#system-requirements)
+[![Renderer](https://img.shields.io/badge/Renderer-Vulkan%201.1%2B-red?style=flat-square&logo=vulkan&logoColor=white)](#system-requirements)
+[![Target](https://img.shields.io/badge/Minecraft-Java%2026.3-5D9C3F?style=flat-square)](#system-requirements)
 [![License](https://img.shields.io/badge/License-MIT-blueviolet?style=flat-square)](LICENSE)
 
 [Download APK](https://github.com/tubers9999/apex/releases) · [Build Instructions](docs/android.md) · [Issue Tracker](https://github.com/tubers9999/apex/issues) · [Contributing](CONTRIBUTING_ANDROID.md)
+
+</div>
 
 ---
 
