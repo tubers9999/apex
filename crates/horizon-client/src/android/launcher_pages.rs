@@ -248,6 +248,10 @@ pub(super) enum Action {
     SelectModalVersion(usize),
     InstallModalProject,
     Import(horizon_client::content_files::Kind),
+    ImportCustomWallpaper,
+    ImportCustomVideo,
+    ImportCustomAudio,
+    OpenThemeFolder,
     OpenFolder(horizon_client::content_files::Kind),
     ToggleSection(usize),
     ToggleLocal(usize),
@@ -4253,9 +4257,9 @@ impl Launcher {
                 let theme_cfg = self.catalog.config.theme.clone();
                 let resolved = theme_cfg.resolve();
                 let total_h = if theme_cfg.background_mode == BackgroundMode::Gradient {
-                    790.0
+                    990.0
                 } else {
-                    680.0
+                    880.0
                 };
                 let extra_ime = if ime_top_dp.is_some() { 200.0 } else { 0.0 };
                 let max_scroll = (total_h + extra_ime - (list_bottom - list_top)).max(0.0);
@@ -4854,7 +4858,135 @@ impl Launcher {
                         .push((mid_r, Action::StepGradientMidPos(1)));
                 }
 
+                let theme_dir = self.catalog.config.game_home(&self.home).join("theme");
+                let has_bg_img = theme_dir.join("background.png").is_file()
+                    || self.home.join("theme/background.png").is_file();
+                let has_bg_video = theme_dir.join("background.mp4").is_file()
+                    || self.home.join("theme/background.mp4").is_file();
+                let has_bg_audio = theme_dir.join("bgm.ogg").is_file()
+                    || self.home.join("theme/bgm.ogg").is_file()
+                    || theme_dir.join("music.ogg").is_file()
+                    || self.home.join("theme/music.ogg").is_file();
+
+                // 6. Custom Media: Wallpaper / Photo from device files
                 cy += 48.0;
+                if cy + 54.0 >= list_top && cy <= list_bottom {
+                    ui.rounded(content_x, cy, content_w, 52.0, 12.0, my3_card_bg());
+                    ui.border(content_x, cy, content_w, 52.0, 12.0, my3_card_border());
+                    ui.icon(Icon::Monitor, content_x + 12.0, cy + 15.0, 22.0, my3_accent());
+                    ui.text(
+                        Face::SemiBold,
+                        12.0,
+                        content_x + 42.0,
+                        cy + 10.0,
+                        my3_text(),
+                        "Custom Wallpaper / Photo",
+                    );
+                    let sub = if has_bg_img {
+                        "Active: theme/background.png"
+                    } else {
+                        "Choose photo or image from phone files"
+                    };
+                    ui.text(
+                        Face::Regular,
+                        9.5,
+                        content_x + 42.0,
+                        cy + 28.0,
+                        if has_bg_img { my3_accent() } else { my3_muted() },
+                        sub,
+                    );
+                    let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
+                    button(
+                        ui,
+                        &mut self.targets,
+                        btn_r,
+                        "Choose Image",
+                        Action::ImportCustomWallpaper,
+                        false,
+                    );
+                    self.list_targets.push((btn_r, Action::ImportCustomWallpaper));
+                }
+
+                // 7. Custom Media: Video Background from device files
+                cy += 60.0;
+                if cy + 54.0 >= list_top && cy <= list_bottom {
+                    ui.rounded(content_x, cy, content_w, 52.0, 12.0, my3_card_bg());
+                    ui.border(content_x, cy, content_w, 52.0, 12.0, my3_card_border());
+                    ui.icon(Icon::Play, content_x + 12.0, cy + 15.0, 22.0, my3_accent());
+                    ui.text(
+                        Face::SemiBold,
+                        12.0,
+                        content_x + 42.0,
+                        cy + 10.0,
+                        my3_text(),
+                        "Custom Video Background",
+                    );
+                    let sub = if has_bg_video {
+                        "Active: theme/background.mp4"
+                    } else {
+                        "Choose video (.mp4) from phone files"
+                    };
+                    ui.text(
+                        Face::Regular,
+                        9.5,
+                        content_x + 42.0,
+                        cy + 28.0,
+                        if has_bg_video { my3_accent() } else { my3_muted() },
+                        sub,
+                    );
+                    let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
+                    button(
+                        ui,
+                        &mut self.targets,
+                        btn_r,
+                        "Choose Video",
+                        Action::ImportCustomVideo,
+                        false,
+                    );
+                    self.list_targets.push((btn_r, Action::ImportCustomVideo));
+                }
+
+                // 8. Custom Media: Background Audio (BGM) from device files
+                cy += 60.0;
+                if cy + 54.0 >= list_top && cy <= list_bottom {
+                    ui.rounded(content_x, cy, content_w, 52.0, 12.0, my3_card_bg());
+                    ui.border(content_x, cy, content_w, 52.0, 12.0, my3_card_border());
+                    ui.icon(Icon::Flask, content_x + 12.0, cy + 15.0, 22.0, my3_accent());
+                    ui.text(
+                        Face::SemiBold,
+                        12.0,
+                        content_x + 42.0,
+                        cy + 10.0,
+                        my3_text(),
+                        "Custom Background Music (BGM)",
+                    );
+                    let sub = if has_bg_audio {
+                        "Active: theme/bgm.ogg (Looping)"
+                    } else {
+                        "Choose audio (.ogg, .mp3) from phone files"
+                    };
+                    ui.text(
+                        Face::Regular,
+                        9.5,
+                        content_x + 42.0,
+                        cy + 28.0,
+                        if has_bg_audio { my3_accent() } else { my3_muted() },
+                        sub,
+                    );
+                    let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
+                    button(
+                        ui,
+                        &mut self.targets,
+                        btn_r,
+                        "Choose Audio",
+                        Action::ImportCustomAudio,
+                        false,
+                    );
+                    self.list_targets.push((btn_r, Action::ImportCustomAudio));
+                }
+
+                // 9. Theme Folder link
+                cy += 60.0;
                 if cy + 54.0 >= list_top && cy <= list_bottom {
                     ui.rounded(content_x, cy, content_w, 52.0, 12.0, my3_card_bg());
                     ui.border(content_x, cy, content_w, 52.0, 12.0, my3_card_border());
@@ -4865,7 +4997,7 @@ impl Launcher {
                         content_x + 42.0,
                         cy + 10.0,
                         my3_text(),
-                        "Custom Background & Audio (theme/)",
+                        "Theme Folder (theme/)",
                     );
                     ui.text(
                         Face::Regular,
@@ -4873,8 +5005,18 @@ impl Launcher {
                         content_x + 42.0,
                         cy + 28.0,
                         my3_muted(),
-                        "Place theme/background.png and theme/bgm.ogg in games/horizon/theme/",
+                        "Manage raw wallpaper, video, and bgm files directly",
                     );
+                    let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
+                    button(
+                        ui,
+                        &mut self.targets,
+                        btn_r,
+                        "Open Folder",
+                        Action::OpenThemeFolder,
+                        false,
+                    );
+                    self.list_targets.push((btn_r, Action::OpenThemeFolder));
                 }
 
                 ui.set_clip(None);
@@ -6131,6 +6273,32 @@ impl Launcher {
                 if let Err(e) = crate::documents::begin(kind, home) {
                     self.catalog.status = e;
                 }
+            }
+            Some(Action::ImportCustomWallpaper) => {
+                crate::platform::hide();
+                let theme_dir = self.catalog.config.game_home(&self.home).join("theme");
+                if let Err(e) = crate::documents::begin_theme_media(theme_dir, "background.png") {
+                    self.catalog.status = e;
+                }
+            }
+            Some(Action::ImportCustomVideo) => {
+                crate::platform::hide();
+                let theme_dir = self.catalog.config.game_home(&self.home).join("theme");
+                if let Err(e) = crate::documents::begin_theme_media(theme_dir, "background.mp4") {
+                    self.catalog.status = e;
+                }
+            }
+            Some(Action::ImportCustomAudio) => {
+                crate::platform::hide();
+                let theme_dir = self.catalog.config.game_home(&self.home).join("theme");
+                if let Err(e) = crate::documents::begin_theme_media(theme_dir, "bgm.ogg") {
+                    self.catalog.status = e;
+                }
+            }
+            Some(Action::OpenThemeFolder) => {
+                let theme_dir = self.catalog.config.game_home(&self.home).join("theme");
+                let _ = std::fs::create_dir_all(&theme_dir);
+                let _ = crate::documents::begin_into_dir(theme_dir);
             }
             Some(Action::ToggleSection(i)) => {
                 self.catalog.sections[i] = !self.catalog.sections[i];

@@ -22,6 +22,7 @@ struct Request {
     kind: Kind,
     appearance: Option<crate::skins::library::Kind>,
     target_dir: Option<PathBuf>,
+    target_filename: Option<&'static str>,
     home: PathBuf,
     cache: PathBuf,
 }
@@ -120,6 +121,7 @@ pub fn begin(kind: Kind, home: PathBuf) -> std::result::Result<(), String> {
         kind,
         appearance: None,
         target_dir: None,
+        target_filename: None,
         home,
         cache,
     });
@@ -150,6 +152,7 @@ pub fn begin_appearance(
         kind: Kind::Packs,
         appearance: Some(kind),
         target_dir: None,
+        target_filename: None,
         home,
         cache,
     });
@@ -175,6 +178,7 @@ pub fn begin_into_dir(target_dir: PathBuf) -> std::result::Result<(), String> {
         kind: Kind::Packs,
         appearance: None,
         target_dir: Some(target_dir),
+        target_filename: None,
         home: PathBuf::new(),
         cache,
     });
@@ -183,6 +187,35 @@ pub fn begin_into_dir(target_dir: PathBuf) -> std::result::Result<(), String> {
         return Err("Android document picker is unavailable".into());
     }
     notice("Choose a file to import into this folder", false);
+    Ok(())
+}
+
+/// Opens Android's file picker to import custom theme media (e.g. `background.png`, `background.mp4`, or `bgm.ogg`).
+pub fn begin_theme_media(
+    target_dir: PathBuf,
+    exact_name: &'static str,
+) -> std::result::Result<(), String> {
+    if busy() {
+        return Err("Finish or cancel the current import first".into());
+    }
+    CANCEL.store(false, Ordering::Relaxed);
+    crate::platform::hide();
+    let cache = crate::platform::cache_dir()
+        .ok_or("Could not access the Android import cache")?
+        .join("theme-media-imports");
+    STATE.lock().unwrap_or_else(|e| e.into_inner()).request = Some(Request {
+        kind: Kind::Packs,
+        appearance: None,
+        target_dir: Some(target_dir),
+        target_filename: Some(exact_name),
+        home: PathBuf::new(),
+        cache,
+    });
+    if !crate::native_ime::pick_document() {
+        picker_failed("Android document picker is unavailable");
+        return Err("Android document picker is unavailable".into());
+    }
+    notice(format!("Choose a file for {exact_name}"), false);
     Ok(())
 }
 
@@ -337,20 +370,30 @@ fn stage(request: Request, mut input: std::fs::File, name: String) -> Result<()>
             if CANCEL.load(Ordering::Relaxed) {
                 return Err("Import cancelled".into());
             }
-            let dest = crate::document_store::unique_destination_path(&target_dir, &name)?;
-            let final_name = dest
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
+            let (dest, final_name) = if let Some(exact) = request.target_filename {
+                std::fs::create_dir_all(&target_dir)?;
+                (target_dir.join(exact), exact.to_owned())
+            } else {
+                let d = crate::document_store::unique_destination_path(&target_dir, &name)?;
+                let n = d
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                (d, n)
+            };
             if std::fs::rename(&staged, &dest).is_err() {
                 std::fs::copy(&staged, &dest)?;
                 let _ = std::fs::remove_file(&staged);
             }
-            notice(
-                format!("Imported '{final_name}' into current folder."),
-                true,
-            );
+            if request.target_filename.is_some() {
+                notice(format!("Applied custom theme file '{final_name}'."), true);
+            } else {
+                notice(
+                    format!("Imported '{final_name}' into current folder."),
+                    true,
+                );
+            }
             Ok(())
         })();
         if res.is_err() {

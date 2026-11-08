@@ -1700,11 +1700,13 @@ impl Loading {
                             let _ = self.startup_mouse_button(event_loop, right, false);
                         }
                         self.menu.touch.cancel();
+                        self.menu.touch.clear_modifiers();
                         self.menu.controls.clear();
+                        let game_home = self.menu.root.as_path();
                         self.menu
                             .controls
                             .settings
-                            .switch_control_system(std::path::Path::new("."), style);
+                            .switch_control_system(game_home, style);
                         self.menu.touch.goy_mode =
                             style == horizon_client::touch::ControlStyle::GoyControl;
                         self.menu.touch.pointer_off =
@@ -1716,16 +1718,25 @@ impl Loading {
                             .sync_viewport_cursor(&mut self.menu.cursor, [b.width, b.height]);
                         self.menu.touch.refresh_presets_cache(style);
                         self.settings.touch = self.menu.controls.settings.clone();
+                        self.settings.save(&Game::options_path());
                     }
                     InGameMenuAction::SelectPreset(id) => {
+                        for right in self.menu.touch.release_all_mouse() {
+                            let _ = self.startup_mouse_button(event_loop, right, false);
+                        }
+                        self.menu.touch.cancel();
+                        self.menu.touch.clear_modifiers();
+                        self.menu.controls.clear();
                         let cur_style = self.menu.controls.settings.control_style;
+                        let game_home = self.menu.root.as_path();
                         self.menu.controls.settings.select_preset(
-                            std::path::Path::new("."),
+                            game_home,
                             cur_style,
                             &id,
                         );
                         self.menu.touch.refresh_presets_cache(cur_style);
                         self.settings.touch = self.menu.controls.settings.clone();
+                        self.settings.save(&Game::options_path());
                     }
                     InGameMenuAction::CopyPreset {
                         source_id,
@@ -1733,20 +1744,22 @@ impl Loading {
                         description,
                     } => {
                         let cur_style = self.menu.controls.settings.control_style;
+                        let game_home = self.menu.root.as_path();
                         if let Ok(meta) = horizon_client::touch::Settings::copy_preset(
-                            std::path::Path::new("."),
+                            game_home,
                             cur_style,
                             &source_id,
                             &name,
                             &description,
                         ) {
                             self.menu.controls.settings.select_preset(
-                                std::path::Path::new("."),
+                                game_home,
                                 cur_style,
                                 &meta.id,
                             );
                             self.menu.touch.refresh_presets_cache(cur_style);
                             self.settings.touch = self.menu.controls.settings.clone();
+                            self.settings.save(&Game::options_path());
                         }
                     }
                     InGameMenuAction::UpdatePresetMeta {
@@ -1755,8 +1768,9 @@ impl Loading {
                         description,
                     } => {
                         let cur_style = self.menu.controls.settings.control_style;
+                        let game_home = self.menu.root.as_path();
                         let _ = self.menu.controls.settings.update_preset_meta(
-                            std::path::Path::new("."),
+                            game_home,
                             cur_style,
                             &id,
                             &name,
@@ -1764,6 +1778,7 @@ impl Loading {
                         );
                         self.menu.touch.refresh_presets_cache(cur_style);
                         self.settings.touch = self.menu.controls.settings.clone();
+                        self.settings.save(&Game::options_path());
                     }
                     InGameMenuAction::ApplyPreset(name) => {
                         self.menu.controls.settings.apply_preset(name);

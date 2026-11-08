@@ -6,7 +6,7 @@ and Java multiplayer. It does not run arbitrary Minecraft JAR versions.
 
 ## Install and play
 
-1. Install the APK matching the device architecture from [Releases](https://github.com/Vasysik/horizon-android/releases).
+1. Install the APK matching the device architecture from [Releases](https://github.com/tubers9999/apex/releases).
 2. Open Horizon and choose **Download Minecraft 26.3**.
 3. Wait for resource verification and installation, then choose **Play**.
 
@@ -113,7 +113,7 @@ custom button deletes that binding; removing a built-in hides it. Done saves;
 Cancel/Android Back restores the previous layout. Multi-key macros are not implemented.
 
 The top row includes F3, chat, pause, Options and F5 perspective. The auxiliary
-`...` drawer retains F1–F12 and other Java keys. Multiple fingers or **Hold F3**
+`...` drawer retains F1â€“F12 and other Java keys. Multiple fingers or **Hold F3**
 allow combinations. Menus support taps, list swipes and slider/inventory dragging.
 Android Back closes the keyboard first, then the current screen.
 
@@ -169,7 +169,7 @@ launcher entry; TV support is experimental and analog gamepad axes are not conne
 
 F2 keeps the original PNG in the profile and publishes a copy to
 **Pictures/HorizonAndroid** through Android MediaStore. Android 10+ needs no
-storage permission. Android 8.1�9 asks for storage permission when first saving;
+storage permission. Android 8.1–9 asks for storage permission when first saving;
 if access is denied, the profile copy remains available. Gallery publication runs
 outside the render thread and reports success or failure in game chat.
 

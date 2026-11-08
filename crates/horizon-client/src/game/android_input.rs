@@ -717,47 +717,70 @@ impl Game<'_> {
                 InGameMenuAction::SetControlStyle(style) => {
                     self.android_release_touch_keys(true);
                     self.pad.touch_ui.goy_in_game_mouse = false;
+                    self.pad.touch_ui.cancel();
                     self.pad.touch.clear();
+                    let game_home = Self::options_path()
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(horizon_client::logging::game_home);
                     self.pad
                         .touch
                         .settings
-                        .switch_control_system(std::path::Path::new("."), style);
+                        .switch_control_system(&game_home, style);
                     self.pad.touch_ui.goy_mode =
                         style == horizon_client::touch::ControlStyle::GoyControl;
                     self.pad.touch_ui.refresh_presets_cache(style);
                     self.settings.touch = self.pad.touch.settings.clone();
+                    self.settings.save(&Self::options_path());
                     self.android_sync_pointer();
                 }
                 InGameMenuAction::SelectPreset(preset_id) => {
+                    self.android_release_touch_keys(true);
+                    self.pad.touch_ui.cancel();
+                    self.pad.touch.clear();
                     let cur_style = self.pad.touch.settings.control_style;
+                    let game_home = Self::options_path()
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(horizon_client::logging::game_home);
                     self.pad.touch.settings.select_preset(
-                        std::path::Path::new("."),
+                        &game_home,
                         cur_style,
                         &preset_id,
                     );
                     self.pad.touch_ui.refresh_presets_cache(cur_style);
                     self.settings.touch = self.pad.touch.settings.clone();
+                    self.settings.save(&Self::options_path());
+                    self.android_sync_pointer();
                 }
                 InGameMenuAction::CopyPreset {
                     source_id,
                     name,
                     description,
                 } => {
+                    self.android_release_touch_keys(true);
+                    self.pad.touch_ui.cancel();
+                    self.pad.touch.clear();
                     let cur_style = self.pad.touch.settings.control_style;
+                    let game_home = Self::options_path()
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(horizon_client::logging::game_home);
                     if let Ok(meta) = horizon_client::touch::Settings::copy_preset(
-                        std::path::Path::new("."),
+                        &game_home,
                         cur_style,
                         &source_id,
                         &name,
                         &description,
                     ) {
                         self.pad.touch.settings.select_preset(
-                            std::path::Path::new("."),
+                            &game_home,
                             cur_style,
                             &meta.id,
                         );
                         self.pad.touch_ui.refresh_presets_cache(cur_style);
                         self.settings.touch = self.pad.touch.settings.clone();
+                        self.settings.save(&Self::options_path());
                     }
                 }
                 InGameMenuAction::UpdatePresetMeta {
@@ -766,8 +789,12 @@ impl Game<'_> {
                     description,
                 } => {
                     let cur_style = self.pad.touch.settings.control_style;
+                    let game_home = Self::options_path()
+                        .parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(horizon_client::logging::game_home);
                     let _ = self.pad.touch.settings.update_preset_meta(
-                        std::path::Path::new("."),
+                        &game_home,
                         cur_style,
                         &preset_id,
                         &name,
@@ -775,6 +802,7 @@ impl Game<'_> {
                     );
                     self.pad.touch_ui.refresh_presets_cache(cur_style);
                     self.settings.touch = self.pad.touch.settings.clone();
+                    self.settings.save(&Self::options_path());
                 }
                 InGameMenuAction::ApplyPreset(name) => {
                     self.pad.touch.settings.apply_preset(name);
@@ -1382,10 +1410,15 @@ impl Game<'_> {
         }
 
         if cancelled {
+            self.physical_keys.clear();
+            self.keys.clear();
+            self.left = false;
+            self.right = false;
             self.pad.hardware_keys.clear();
             crate::platform::cancel_vibration();
             self.pad.touch.clear();
             self.pad.touch_aim = None;
+            self.pad.touch_ui.cancel();
         }
         self.android_custom_events();
         for key in self.pad.touch_ui.release_keys() {

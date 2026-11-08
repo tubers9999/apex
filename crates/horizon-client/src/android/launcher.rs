@@ -912,6 +912,7 @@ impl ApplicationHandler for Launcher {
         self.wardrobe.poll();
         if let Some(notice) = crate::documents::poll() {
             self.wardrobe.reload();
+            self.custom_bgm_checked = false;
             self.catalog.status = notice.text;
             if notice.changed {
                 self.catalog.refresh(&self.home);

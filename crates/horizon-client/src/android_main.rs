@@ -213,6 +213,7 @@ fn android_main(app: AndroidApp) {
         return;
     };
     backend::initialize(home.clone());
+    horizon_client::logging::set_game_home(home.clone());
     if let Err(error) = diagnostics::initialize(&home, serde_json::json!({})) {
         log::error!("Cannot initialize local diagnostics: {error}");
     }

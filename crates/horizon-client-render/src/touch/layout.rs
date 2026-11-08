@@ -692,9 +692,19 @@ impl Settings {
         }
     }
 
+    /// Resolves `game_home`, falling back to `crate::logging::game_home()` if empty or `.`
+    pub fn resolve_home<'a>(game_home: &'a std::path::Path) -> std::borrow::Cow<'a, std::path::Path> {
+        if game_home.as_os_str().is_empty() || game_home == std::path::Path::new(".") {
+            std::borrow::Cow::Owned(crate::logging::game_home())
+        } else {
+            std::borrow::Cow::Borrowed(game_home)
+        }
+    }
+
     /// Storage directory for a control system (`controls/mcpe` or `controls/goycontrol`).
     pub fn system_dir(game_home: &std::path::Path, style: ControlStyle) -> std::path::PathBuf {
-        game_home.join(style.storage_subdir())
+        let home = Self::resolve_home(game_home);
+        home.join(style.storage_subdir())
     }
 
     /// Returns true if this configuration represents the protected Default preset of its system.
@@ -994,7 +1004,7 @@ impl Settings {
             let _ = def.save_to(&default_path);
         }
         // Migrate legacy user profiles from `controlmap/` into the matching system directory once.
-        let legacy_dir = game_home.join("controlmap");
+        let legacy_dir = Self::resolve_home(game_home).join("controlmap");
         if legacy_dir.is_dir() {
             for entry in std::fs::read_dir(&legacy_dir)
                 .into_iter()
@@ -1231,7 +1241,8 @@ impl Settings {
         if self.control_style == style && self.preset_id == clean {
             self.preset_name = preset.preset_name.clone();
             self.preset_description = preset.preset_description.clone();
-            let _ = self.save_to(&game_home.join("horizon-touch.json"));
+            let resolved = Self::resolve_home(game_home);
+            let _ = self.save_to(&resolved.join("horizon-touch.json"));
         }
         Ok(PresetMeta {
             id: clean,
@@ -1277,7 +1288,8 @@ impl Settings {
         loaded.show_control_hub = prev_hub;
         loaded.auto_jump = prev_auto_jump;
         *self = loaded;
-        let _ = self.save_to(&game_home.join("horizon-touch.json"));
+        let resolved = Self::resolve_home(game_home);
+        let _ = self.save_to(&resolved.join("horizon-touch.json"));
     }
 
     /// Switches between MCPE and GoyControl.
@@ -1327,7 +1339,8 @@ impl Settings {
         loaded.show_control_hub = prev_hub;
         loaded.auto_jump = prev_auto_jump;
         *self = loaded;
-        let _ = self.save_to(&game_home.join("horizon-touch.json"));
+        let resolved = Self::resolve_home(game_home);
+        let _ = self.save_to(&resolved.join("horizon-touch.json"));
     }
 
     /// Control Editor Save Option A: Replace the currently selected user-created preset.
@@ -1350,7 +1363,8 @@ impl Settings {
         self.sanitize();
         let target = Self::system_dir(game_home, self.control_style).join(format!("{clean}.json"));
         self.save_to(&target)?;
-        self.save_to(&game_home.join("horizon-touch.json"))
+        let resolved = Self::resolve_home(game_home);
+        self.save_to(&resolved.join("horizon-touch.json"))
     }
 
     /// Control Editor Save Option B: Save the current editor layout as a new independent preset
@@ -1393,7 +1407,8 @@ impl Settings {
         self.sanitize();
         let target = Self::system_dir(game_home, style).join(format!("{new_id}.json"));
         self.save_to(&target)?;
-        self.save_to(&game_home.join("horizon-touch.json"))?;
+        let resolved = Self::resolve_home(game_home);
+        self.save_to(&resolved.join("horizon-touch.json"))?;
         Ok(PresetMeta {
             id: new_id,
             name: display_name,

@@ -245,10 +245,12 @@ fn seg_dist(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> f32 {
 fn icon_hit(icon: Icon, u: f32, v: f32) -> bool {
     match icon {
         Icon::HorizonLogo => {
-            let left_bar = seg_dist(u, v, 0.22, 0.16, 0.22, 0.84) <= 0.095;
-            let right_bar = seg_dist(u, v, 0.78, 0.16, 0.78, 0.84) <= 0.095;
-            let bridge = seg_dist(u, v, 0.22, 0.56, 0.78, 0.42) <= 0.088;
-            left_bar || right_bar || bridge
+            // Apex Chevron "A" with glowing crossbar and floating cyber prism core
+            let left_leg = seg_dist(u, v, 0.50, 0.14, 0.18, 0.84) <= 0.085;
+            let right_leg = seg_dist(u, v, 0.50, 0.14, 0.82, 0.84) <= 0.085;
+            let crossbar = seg_dist(u, v, 0.30, 0.60, 0.70, 0.60) <= 0.075;
+            let core = seg_dist(u, v, 0.50, 0.40, 0.50, 0.40) <= 0.070;
+            left_leg || right_leg || crossbar || core
         }
         Icon::ChevronDown => {
             seg_dist(u, v, 0.24, 0.38, 0.50, 0.64) <= 0.075

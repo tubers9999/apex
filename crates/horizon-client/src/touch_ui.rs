@@ -581,7 +581,7 @@ impl TouchUi {
 
     pub fn refresh_presets_cache(&mut self, style: crate::touch::ControlStyle) {
         self.cached_presets =
-            crate::touch::Settings::list_presets(std::path::Path::new("."), style);
+            crate::touch::Settings::list_presets(&crate::logging::game_home(), style);
         self.cached_presets_style = Some(style);
     }
     pub fn ensure_presets_cache(&mut self, style: crate::touch::ControlStyle) {
@@ -2187,6 +2187,7 @@ impl TouchUi {
                     return Some(InGameMenuAction::Close);
                 }
                 if inside(row_r) {
+                    self.presets_modal_open = false;
                     return Some(InGameMenuAction::SelectPreset(preset.id.clone()));
                 }
             }

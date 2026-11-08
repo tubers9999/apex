@@ -1,21 +1,11 @@
-# Horizon Android
+# Apex — RedGlitchX Edition
 
-> [!IMPORTANT]
-> **Horizon Android is now Starling.**
->
-> Horizon Android and [Starling](https://github.com/JuanLuci/starling) are merging into one Android port of Horizon, under the **Starling** name, here in this repository. Starling's code is the base, and the best of Horizon Android is being brought over to it.
->
-> - **0.7.8 is Horizon Android's last stable release.** Starling's releases stay on [JuanLuci/starling](https://github.com/JuanLuci/starling/releases) until the unified release.
-> - **New work goes to the [`starling`](https://github.com/starling-client/starling/tree/starling) branch.** This `android` branch takes the pull requests that are already open, then becomes a historical branch at the unified release.
-> - Horizon Android's history, contributors, issues and community stay here.
+A high-performance native Android client for Minecraft Java 26.3 with GoyControl, MCPE schemes, native `.hmod` mods, and custom shaders. Powered by RedGlitchX.
 
-A native Android port of [Horizon](https://github.com/ludovic111/horizon), the
-Rust engine for Minecraft Java 26.3. Unofficial and in active development.
+**Android 9+ · Vulkan · GoyControl & MCPE · Sandboxed `.hmod` Mods · Custom Wallpapers & BGM**
 
-**Android 9+ · Vulkan · Four touch schemes · Sandboxed `.hmod` mods**
-
-[Download APK](https://github.com/Vasysik/horizon-android/releases) · [Build & play](docs/android.md) · [Contribute](CONTRIBUTING_ANDROID.md) ·
-[Report an Android bug](https://github.com/Vasysik/horizon-android/issues/new?template=android-bug.yml) ·
+[Download APK](https://github.com/tubers9999/apex/releases) · [Build & play](docs/android.md) · [Contribute](CONTRIBUTING_ANDROID.md) ·
+[Report an Android bug](https://github.com/tubers9999/apex/issues/new?template=android-bug.yml) ·
 [Discord community](https://discord.gg/PG79z2PhjG)
 
 ## What works
