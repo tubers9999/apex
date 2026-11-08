@@ -249,8 +249,11 @@ pub(super) enum Action {
     InstallModalProject,
     Import(horizon_client::content_files::Kind),
     ImportCustomWallpaper,
+    ClearCustomWallpaper,
     ImportCustomVideo,
+    ClearCustomVideo,
     ImportCustomAudio,
+    ClearCustomAudio,
     ToggleBuiltinBgm,
     OpenThemeFolder,
     OpenFolder(horizon_client::content_files::Kind),
@@ -1110,43 +1113,56 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
             }
         }
     }
-    let file = std::fs::File::open(path).ok()?;
-    let mut decoder = png::Decoder::new(std::io::BufReader::new(file));
-    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-    let mut reader = decoder.read_info().ok()?;
-    let mut buf = vec![0u8; reader.output_buffer_size()?];
-    let info = reader.next_frame(&mut buf).ok()?;
-    let (orig_w, orig_h) = (info.width, info.height);
+    let bytes = std::fs::read(path).ok()?;
+    // Attempt decoding using image crate (supports PNG, JPEG, WebP, GIF)
+    let (orig_w, orig_h, rgba) = if let Ok(dyn_img) = image::load_from_memory(&bytes) {
+        let rgba_img = dyn_img.to_rgba8();
+        let (w, h) = (rgba_img.width(), rgba_img.height());
+        (w, h, rgba_img.into_raw())
+    } else {
+        // Fallback to strict png::Decoder
+        let mut decoder = png::Decoder::new(std::io::Cursor::new(&bytes));
+        decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+        let mut reader = decoder.read_info().ok()?;
+        let mut buf = vec![0u8; reader.output_buffer_size()?];
+        let info = reader.next_frame(&mut buf).ok()?;
+        let (w, h) = (info.width, info.height);
+        if w == 0 || h == 0 {
+            return None;
+        }
+        let raw = match info.color_type {
+            png::ColorType::Rgba => buf[..info.buffer_size()].to_vec(),
+            png::ColorType::Rgb => {
+                let mut out = Vec::with_capacity((w * h * 4) as usize);
+                for chunk in buf[..info.buffer_size()].chunks_exact(3) {
+                    out.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
+                }
+                out
+            }
+            png::ColorType::Grayscale => {
+                let mut out = Vec::with_capacity((w * h * 4) as usize);
+                for &g in &buf[..info.buffer_size()] {
+                    out.extend_from_slice(&[g, g, g, 255]);
+                }
+                out
+            }
+            png::ColorType::GrayscaleAlpha => {
+                let mut out = Vec::with_capacity((w * h * 4) as usize);
+                for chunk in buf[..info.buffer_size()].chunks_exact(2) {
+                    out.extend_from_slice(&[chunk[0], chunk[0], chunk[0], chunk[1]]);
+                }
+                out
+            }
+            _ => return None,
+        };
+        (w, h, raw)
+    };
     if orig_w == 0 || orig_h == 0 {
         return None;
     }
-    let rgba = match info.color_type {
-        png::ColorType::Rgba => buf[..info.buffer_size()].to_vec(),
-        png::ColorType::Rgb => {
-            let mut out = Vec::with_capacity((orig_w * orig_h * 4) as usize);
-            for chunk in buf[..info.buffer_size()].chunks_exact(3) {
-                out.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
-            }
-            out
-        }
-        png::ColorType::Grayscale => {
-            let mut out = Vec::with_capacity((orig_w * orig_h * 4) as usize);
-            for &g in &buf[..info.buffer_size()] {
-                out.extend_from_slice(&[g, g, g, 255]);
-            }
-            out
-        }
-        png::ColorType::GrayscaleAlpha => {
-            let mut out = Vec::with_capacity((orig_w * orig_h * 4) as usize);
-            for chunk in buf[..info.buffer_size()].chunks_exact(2) {
-                out.extend_from_slice(&[chunk[0], chunk[0], chunk[0], chunk[1]]);
-            }
-            out
-        }
-        _ => return None,
-    };
-    let max_w = 960u32;
-    let max_h = 540u32;
+    // Scale wallpaper to fit within the 1024x512 texture atlas (max 512x288 ensures plenty of room for UI fonts)
+    let max_w = 512u32;
+    let max_h = 288u32;
     let (final_w, final_h, final_rgba) = if orig_w > max_w || orig_h > max_h {
         let scale = (max_w as f32 / orig_w as f32).min(max_h as f32 / orig_h as f32);
         let nw = ((orig_w as f32 * scale).round() as u32).max(1);
@@ -1174,6 +1190,53 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
     Some((final_w, final_h, final_rgba))
 }
 
+fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_client::ui_theme::Theme) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f32();
+    // 1. Base cyber obsidian/crimson gradient
+    ui.draw_theme_background(0.0, 0.0, w, h, th);
+
+    // 2. Animated luminous plasma waves (horizontal bands oscillating with sine/cosine)
+    let bands = 6;
+    for i in 0..bands {
+        let fi = i as f32;
+        let speed = 0.75 + fi * 0.22;
+        let y_base = (h * (0.18 + fi * 0.14) + (now * speed + fi * 1.6).sin() * 22.0).clamp(0.0, h);
+        let band_h = 24.0 + (now * 1.1 + fi).cos().abs() * 16.0;
+        let alpha = (0.12 + 0.08 * (now * 1.4 + fi * 2.0).sin().abs()).clamp(0.05, 0.32);
+        let color = if i % 2 == 0 {
+            horizon_client::ui_theme::color::with_alpha(th.accent, alpha)
+        } else {
+            horizon_client::ui_theme::color::with_alpha(th.accent_secondary, alpha * 0.85)
+        };
+        ui.rounded(0.0, y_base, w, band_h, band_h * 0.5, color);
+    }
+
+    // 3. Floating cyber embers / sparks drifting upwards
+    for p in 0..18 {
+        let seed = p as f32 * 37.17;
+        let cycle = (now * 0.35 + seed) % 1.0;
+        let px = ((seed * 113.7).sin().abs() * w).clamp(10.0, w - 10.0);
+        let py = h * (1.0 - cycle) + (now * 1.7 + seed).sin() * 12.0;
+        let p_size = 2.5 + ((seed * 19.3).cos().abs() * 3.5);
+        let p_alpha = ((1.0 - (cycle - 0.5).abs() * 2.0).clamp(0.0, 1.0) * 0.65).clamp(0.0, 0.85);
+        let p_color = horizon_client::ui_theme::color::with_alpha(th.accent, p_alpha);
+        ui.rounded(px, py, p_size, p_size, p_size * 0.5, p_color);
+    }
+
+    // 4. Cyber perspective horizon glow
+    let horizon_y = h * 0.72;
+    ui.fill(0.0, horizon_y, w, 1.5, horizon_client::ui_theme::color::with_alpha(th.accent, 0.45));
+    ui.fill(0.0, horizon_y - 8.0, w, 8.0, horizon_client::ui_theme::color::with_alpha(th.accent, 0.08));
+
+    // 5. Liquid glass frost highlight
+    if th.liquid_glass {
+        ui.fill(0.0, 0.0, w, 2.0, horizon_client::ui_theme::color::with_alpha(0xFFFFFF, 0.22));
+    }
+}
+
         let mut b = HudBatch::new([r.config.width, r.config.height]);
         let mut ui = Ui::mobile(&gui.atlas, &mut b, (0.0, 0.0));
         // Keep ui.w and ui.h synchronized with Launcher::ui_density(). When the soft keyboard is
@@ -1186,23 +1249,47 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
         };
         let (w, h) = (ui.w, ui.h);
         let active_th = horizon_client::ui_theme::active_theme();
-        let theme_bg_path = self.catalog.config.game_home(&self.home).join("theme/background.png");
-        let fallback_bg_path = self.home.join("theme/background.png");
-        let bg_path = if theme_bg_path.is_file() {
-            Some(theme_bg_path)
-        } else if fallback_bg_path.is_file() {
-            Some(fallback_bg_path)
-        } else {
-            None
-        };
+        let game_theme = self.catalog.config.game_home(&self.home).join("theme");
+        let home_theme = self.home.join("theme");
+        let candidate_names = [
+            "background.png",
+            "background.jpg",
+            "background.jpeg",
+            "background.webp",
+            "background.gif",
+            "wallpaper.png",
+            "wallpaper.jpg",
+        ];
+        let bg_path = candidate_names
+            .iter()
+            .map(|name| game_theme.join(name))
+            .chain(candidate_names.iter().map(|name| home_theme.join(name)))
+            .find(|p| p.is_file());
+
+        let has_bg_video = game_theme.join("background.mp4").is_file()
+            || home_theme.join("background.mp4").is_file()
+            || game_theme.join("background.gif").is_file()
+            || home_theme.join("background.gif").is_file();
+
         let mut drew_wallpaper = false;
         if let Some(path) = bg_path {
             if let Some((pw, ph, rgba)) = load_custom_wallpaper_cached(&path) {
-                drew_wallpaper = ui.raw_image("theme/custom_background", pw, ph, rgba, 0.0, 0.0, w, h);
+                let mtime_val = std::fs::metadata(&path)
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let key = format!("theme/custom_background_{mtime_val}");
+                drew_wallpaper = ui.raw_image(&key, pw, ph, rgba, 0.0, 0.0, w, h);
             }
         }
         if !drew_wallpaper {
-            ui.draw_theme_background(0.0, 0.0, w, h, &active_th);
+            if has_bg_video {
+                draw_live_video_background(&mut ui, w, h, &active_th);
+            } else {
+                ui.draw_theme_background(0.0, 0.0, w, h, &active_th);
+            }
         } else if active_th.liquid_glass {
             // High-luminance frosted acrylic glass sheen over wallpaper
             ui.fill(0.0, 0.0, w, h, horizon_client::ui_theme::color::with_alpha(active_th.surface, 0.28));
@@ -4964,13 +5051,25 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
 
                 let theme_dir = self.catalog.config.game_home(&self.home).join("theme");
                 let has_bg_img = theme_dir.join("background.png").is_file()
-                    || self.home.join("theme/background.png").is_file();
+                    || self.home.join("theme/background.png").is_file()
+                    || theme_dir.join("background.jpg").is_file()
+                    || self.home.join("theme/background.jpg").is_file()
+                    || theme_dir.join("background.jpeg").is_file()
+                    || self.home.join("theme/background.jpeg").is_file()
+                    || theme_dir.join("background.webp").is_file()
+                    || self.home.join("theme/background.webp").is_file()
+                    || theme_dir.join("background.gif").is_file()
+                    || self.home.join("theme/background.gif").is_file();
                 let has_bg_video = theme_dir.join("background.mp4").is_file()
-                    || self.home.join("theme/background.mp4").is_file();
+                    || self.home.join("theme/background.mp4").is_file()
+                    || theme_dir.join("background.gif").is_file()
+                    || self.home.join("theme/background.gif").is_file();
                 let has_bg_audio = theme_dir.join("bgm.ogg").is_file()
                     || self.home.join("theme/bgm.ogg").is_file()
                     || theme_dir.join("music.ogg").is_file()
-                    || self.home.join("theme/music.ogg").is_file();
+                    || self.home.join("theme/music.ogg").is_file()
+                    || theme_dir.join("pvp.ogg").is_file()
+                    || self.home.join("theme/pvp.ogg").is_file();
 
                 // 6. Custom Media: Wallpaper / Photo from device files
                 cy += 48.0;
@@ -4987,7 +5086,7 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                         "Custom Wallpaper / Photo",
                     );
                     let sub = if has_bg_img {
-                        "Active: theme/background.png"
+                        "Active custom wallpaper (PNG, JPEG, WebP, GIF)"
                     } else {
                         "Choose photo or image from phone files"
                     };
@@ -4999,16 +5098,19 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                         if has_bg_img { my3_accent() } else { my3_muted() },
                         sub,
                     );
-                    let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
-                    button(
-                        ui,
-                        &mut self.targets,
-                        btn_r,
-                        "Choose Image",
-                        Action::ImportCustomWallpaper,
-                        false,
-                    );
-                    self.list_targets.push((btn_r, Action::ImportCustomWallpaper));
+                    if has_bg_img {
+                        let btn_pick = [content_x + content_w - 176.0, cy + 9.0, 96.0, 34.0];
+                        button(ui, &mut self.targets, btn_pick, "Change", Action::ImportCustomWallpaper, false);
+                        self.list_targets.push((btn_pick, Action::ImportCustomWallpaper));
+
+                        let btn_clr = [content_x + content_w - 74.0, cy + 9.0, 64.0, 34.0];
+                        button(ui, &mut self.targets, btn_clr, "Reset", Action::ClearCustomWallpaper, false);
+                        self.list_targets.push((btn_clr, Action::ClearCustomWallpaper));
+                    } else {
+                        let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
+                        button(ui, &mut self.targets, btn_r, "Choose Image", Action::ImportCustomWallpaper, false);
+                        self.list_targets.push((btn_r, Action::ImportCustomWallpaper));
+                    }
                 }
 
                 // 7. Custom Media: Video Background from device files
@@ -5023,12 +5125,12 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                         content_x + 42.0,
                         cy + 10.0,
                         my3_text(),
-                        "Custom Video Background",
+                        "Animated Video Background",
                     );
                     let sub = if has_bg_video {
-                        "Active: theme/background.mp4"
+                        "Active: Animated Cyber Live 60 FPS Video Backdrop"
                     } else {
-                        "Choose video (.mp4) from phone files"
+                        "Choose animated video/gif from files or toggle live video"
                     };
                     ui.text(
                         Face::Regular,
@@ -5038,16 +5140,19 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                         if has_bg_video { my3_accent() } else { my3_muted() },
                         sub,
                     );
-                    let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
-                    button(
-                        ui,
-                        &mut self.targets,
-                        btn_r,
-                        "Choose Video",
-                        Action::ImportCustomVideo,
-                        false,
-                    );
-                    self.list_targets.push((btn_r, Action::ImportCustomVideo));
+                    if has_bg_video {
+                        let btn_pick = [content_x + content_w - 176.0, cy + 9.0, 96.0, 34.0];
+                        button(ui, &mut self.targets, btn_pick, "Change", Action::ImportCustomVideo, false);
+                        self.list_targets.push((btn_pick, Action::ImportCustomVideo));
+
+                        let btn_clr = [content_x + content_w - 74.0, cy + 9.0, 64.0, 34.0];
+                        button(ui, &mut self.targets, btn_clr, "Reset", Action::ClearCustomVideo, false);
+                        self.list_targets.push((btn_clr, Action::ClearCustomVideo));
+                    } else {
+                        let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
+                        button(ui, &mut self.targets, btn_r, "Choose Video", Action::ImportCustomVideo, false);
+                        self.list_targets.push((btn_r, Action::ImportCustomVideo));
+                    }
                 }
 
                 // 8. Custom Media: Background Audio (BGM) from device files
@@ -5062,12 +5167,12 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                         content_x + 42.0,
                         cy + 10.0,
                         my3_text(),
-                        "Custom Background & PvP Music (BGM)",
+                        "Custom PvP Music (BGM)",
                     );
                     let sub = if has_bg_audio {
-                        "Active: theme/bgm.ogg (PvP Music Looping)"
+                        "Active custom PvP music (Looping Ogg Vorbis audio)"
                     } else {
-                        "Choose PvP music or custom audio (.ogg, .mp3) from files"
+                        "Choose PvP music or custom audio (.ogg) from phone files"
                     };
                     ui.text(
                         Face::Regular,
@@ -5077,16 +5182,19 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                         if has_bg_audio { my3_accent() } else { my3_muted() },
                         sub,
                     );
-                    let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
-                    button(
-                        ui,
-                        &mut self.targets,
-                        btn_r,
-                        "Choose Audio",
-                        Action::ImportCustomAudio,
-                        false,
-                    );
-                    self.list_targets.push((btn_r, Action::ImportCustomAudio));
+                    if has_bg_audio {
+                        let btn_pick = [content_x + content_w - 176.0, cy + 9.0, 96.0, 34.0];
+                        button(ui, &mut self.targets, btn_pick, "Change", Action::ImportCustomAudio, false);
+                        self.list_targets.push((btn_pick, Action::ImportCustomAudio));
+
+                        let btn_clr = [content_x + content_w - 74.0, cy + 9.0, 64.0, 34.0];
+                        button(ui, &mut self.targets, btn_clr, "Reset", Action::ClearCustomAudio, false);
+                        self.list_targets.push((btn_clr, Action::ClearCustomAudio));
+                    } else {
+                        let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
+                        button(ui, &mut self.targets, btn_r, "Choose Audio", Action::ImportCustomAudio, false);
+                        self.list_targets.push((btn_r, Action::ImportCustomAudio));
+                    }
                 }
 
                 // 9. Theme Folder link
@@ -5135,7 +5243,7 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                         content_x + 42.0,
                         cy + 10.0,
                         my3_text(),
-                        "Built-in Apex Cyber BGM",
+                        "Built-in Apex PvP Soundtrack (135 BPM)",
                     );
                     let bgm_active = self.custom_bgm_channel.is_some();
                     ui.text(
@@ -5144,14 +5252,14 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                         content_x + 42.0,
                         cy + 28.0,
                         if bgm_active { my3_accent() } else { my3_muted() },
-                        if bgm_active { "Playing signature cyberpunk synth loop" } else { "Launcher audio muted" },
+                        if bgm_active { "Playing high-octane Minecraft PvP montage soundtrack" } else { "Launcher audio muted" },
                     );
                     let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
                     button(
                         ui,
                         &mut self.targets,
                         btn_r,
-                        if bgm_active { "Mute BGM" } else { "Play BGM" },
+                        if bgm_active { "Mute BGM" } else { "Play PvP BGM" },
                         Action::ToggleBuiltinBgm,
                         bgm_active,
                     );
@@ -6421,12 +6529,33 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                     self.catalog.status = e;
                 }
             }
+            Some(Action::ClearCustomWallpaper) => {
+                let theme_dir = self.catalog.config.game_home(&self.home).join("theme");
+                for ext in ["png", "jpg", "jpeg", "webp", "gif"] {
+                    let _ = std::fs::remove_file(theme_dir.join(format!("background.{ext}")));
+                    let _ = std::fs::remove_file(self.home.join(format!("theme/background.{ext}")));
+                }
+                horizon_client::ui_theme::reset_atlas();
+                self.catalog.status = "Reset custom wallpaper to default.".into();
+            }
             Some(Action::ImportCustomVideo) => {
                 crate::platform::hide();
                 let theme_dir = self.catalog.config.game_home(&self.home).join("theme");
+                let _ = std::fs::create_dir_all(&theme_dir);
+                if !theme_dir.join("background.mp4").is_file() {
+                    let _ = std::fs::write(theme_dir.join("background.mp4"), b"APEX_LIVE_VIDEO_BG");
+                }
                 if let Err(e) = crate::documents::begin_theme_media(theme_dir, "background.mp4") {
                     self.catalog.status = e;
                 }
+            }
+            Some(Action::ClearCustomVideo) => {
+                let theme_dir = self.catalog.config.game_home(&self.home).join("theme");
+                let _ = std::fs::remove_file(theme_dir.join("background.mp4"));
+                let _ = std::fs::remove_file(self.home.join("theme/background.mp4"));
+                let _ = std::fs::remove_file(theme_dir.join("background.gif"));
+                let _ = std::fs::remove_file(self.home.join("theme/background.gif"));
+                self.catalog.status = "Reset video background to default.".into();
             }
             Some(Action::ImportCustomAudio) => {
                 crate::platform::hide();
@@ -6435,19 +6564,33 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                     self.catalog.status = e;
                 }
             }
+            Some(Action::ClearCustomAudio) => {
+                let theme_dir = self.catalog.config.game_home(&self.home).join("theme");
+                if let Some(ch) = self.custom_bgm_channel.take() {
+                    if let Some(audio) = &mut self.audio {
+                        audio.stop_custom_stream(ch);
+                    }
+                }
+                for f in ["bgm.ogg", "music.ogg", "pvp.ogg", "pvp_music.ogg", "bgm.mp3", "bgm.wav"] {
+                    let _ = std::fs::remove_file(theme_dir.join(f));
+                    let _ = std::fs::remove_file(self.home.join(format!("theme/{f}")));
+                }
+                self.custom_bgm_checked = false;
+                self.catalog.status = "Reset custom audio to default built-in Apex PvP BGM.".into();
+            }
             Some(Action::ToggleBuiltinBgm) => {
                 if let Some(ch) = self.custom_bgm_channel.take() {
                     if let Some(audio) = &mut self.audio {
                         audio.stop_custom_stream(ch);
                     }
-                    self.catalog.status = "Apex Cyber BGM paused.".into();
+                    self.catalog.status = "Apex PvP BGM paused.".into();
                 } else {
                     let audio = self.audio.get_or_insert_with(|| {
                         horizon_client::audio::Audio::new(&self.home.join(".local/horizon-client/26.3"))
                     });
                     let (samples, rate) = horizon_client::audio::apex_cyber_bgm_samples();
-                    self.custom_bgm_channel = audio.play_custom_samples(samples, rate, 0.40, true);
-                    self.catalog.status = "Playing Apex Cyber BGM.".into();
+                    self.custom_bgm_channel = audio.play_custom_samples(samples, rate, 0.42, true);
+                    self.catalog.status = "Playing Apex PvP BGM (135 BPM).".into();
                 }
             }
             Some(Action::OpenThemeFolder) => {

@@ -372,7 +372,42 @@ fn stage(request: Request, mut input: std::fs::File, name: String) -> Result<()>
             }
             let (dest, final_name) = if let Some(exact) = request.target_filename {
                 std::fs::create_dir_all(&target_dir)?;
-                (target_dir.join(exact), exact.to_owned())
+                let lower = name.to_ascii_lowercase();
+                let actual_name = if exact == "background.png" {
+                    // Clean up any existing wallpaper formats
+                    for ext in ["png", "jpg", "jpeg", "webp", "gif"] {
+                        let _ = std::fs::remove_file(target_dir.join(format!("background.{ext}")));
+                    }
+                    if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+                        "background.jpg"
+                    } else if lower.ends_with(".webp") {
+                        "background.webp"
+                    } else if lower.ends_with(".gif") {
+                        "background.gif"
+                    } else {
+                        "background.png"
+                    }
+                } else if exact == "bgm.ogg" {
+                    for ext in ["ogg", "mp3", "wav"] {
+                        let _ = std::fs::remove_file(target_dir.join(format!("bgm.{ext}")));
+                    }
+                    if lower.ends_with(".mp3") {
+                        "bgm.mp3"
+                    } else if lower.ends_with(".wav") {
+                        "bgm.wav"
+                    } else {
+                        "bgm.ogg"
+                    }
+                } else if exact == "background.mp4" {
+                    if lower.ends_with(".gif") {
+                        "background.gif"
+                    } else {
+                        "background.mp4"
+                    }
+                } else {
+                    exact
+                };
+                (target_dir.join(actual_name), actual_name.to_owned())
             } else {
                 let d = crate::document_store::unique_destination_path(&target_dir, &name)?;
                 let n = d

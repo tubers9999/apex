@@ -1593,60 +1593,108 @@ pub fn apex_hit_sound_samples() -> (Arc<Vec<f32>>, u32) {
         .clone()
 }
 
-/// Generates or returns the precomputed Apex Cyber Chillwave looping background music.
+/// Generates or returns the precomputed Apex High-Octane 135 BPM Minecraft PvP soundtrack.
 pub fn apex_cyber_bgm_samples() -> (Arc<Vec<f32>>, u32) {
     static CACHED: std::sync::OnceLock<(Arc<Vec<f32>>, u32)> = std::sync::OnceLock::new();
     CACHED
         .get_or_init(|| {
             let sample_rate = 22050u32;
-            let duration_secs = 9.6f32; // 4 bars at 100 BPM
+            let bpm = 135.0f32;
+            let beat_sec = 60.0 / bpm; // ~0.444s per beat
+            let bar_sec = beat_sec * 4.0; // ~1.778s per bar
+            let total_bars = 8;
+            let duration_secs = bar_sec * total_bars as f32; // ~14.22s loop
             let total_samples = (sample_rate as f32 * duration_secs) as usize;
             let mut buffer = vec![0.0f32; total_samples];
 
-            // Cyber chord progression: Am9, Fmaj7, Dm9, Em7
-            let chords: [&[f32]; 4] = [
-                &[110.0, 130.81, 164.81, 196.0, 246.94],
-                &[87.31, 110.0, 130.81, 164.81, 220.0],
-                &[73.42, 110.0, 130.81, 146.83, 174.61],
-                &[82.41, 123.47, 146.83, 164.81, 196.0],
+            // Pseudo-random noise generator for crisp percussion
+            let mut noise_state = 0x1337BEEFu32;
+            let mut next_noise = || -> f32 {
+                noise_state = noise_state.wrapping_mul(1664525).wrapping_add(1013904223);
+                ((noise_state >> 16) as f32 / 32768.0) - 1.0
+            };
+
+            // 8-bar D Minor progression roots
+            let bar_roots = [
+                73.42f32, 73.42, // D2
+                58.27,    58.27, // Bb1
+                49.00,    49.00, // G1
+                55.00,    55.00, // A1
             ];
 
-            let seg_len = total_samples / 4;
-            for (c_idx, chord) in chords.iter().enumerate() {
-                let c_start = c_idx * seg_len;
-                let c_end = if c_idx < 3 { (c_idx + 1) * seg_len } else { total_samples };
-                let c_samples = c_end - c_start;
-                for i in 0..c_samples {
-                    let idx = c_start + i;
-                    let t = idx as f32 / sample_rate as f32;
-                    let seg_t = i as f32 / c_samples as f32;
-                    let env = (i as f32 / (sample_rate as f32 * 0.15)).clamp(0.0, 1.0)
-                        * ((c_samples - i) as f32 / (sample_rate as f32 * 0.15)).clamp(0.0, 1.0);
+            // 16th note pattern for melody lead
+            let bar_melodies: [[f32; 8]; 4] = [
+                // D minor hook: D4, F4, A4, D5, C5, A4, F4, G4
+                [293.66, 349.23, 440.00, 587.33, 523.25, 440.00, 349.23, 392.00],
+                // Bb hook: F4, Bb4, D5, F5, D5, Bb4, A4, F4
+                [349.23, 466.16, 587.33, 698.46, 587.33, 466.16, 440.00, 349.23],
+                // G minor hook: G4, Bb4, D5, G5, F5, D5, Bb4, G4
+                [392.00, 466.16, 587.33, 783.99, 698.46, 587.33, 466.16, 392.00],
+                // A tension resolve: A4, C#5, E5, A5, G5, E5, C#5, E5
+                [440.00, 554.37, 659.25, 880.00, 783.99, 659.25, 554.37, 659.25],
+            ];
 
-                    let mut chord_val = 0.0f32;
-                    for &f in chord.iter() {
-                        let osc1 = (2.0 * std::f32::consts::PI * f * t).sin();
-                        let osc2 = (2.0 * std::f32::consts::PI * (f * 1.003) * t).sin();
-                        chord_val += (osc1 + osc2) * 0.5;
-                    }
-                    chord_val /= chord.len() as f32;
+            let sixteenth_sec = beat_sec * 0.25;
 
-                    let root_f = chord[0] * 0.5;
-                    let bass = (2.0 * std::f32::consts::PI * root_f * t).sin()
-                        * 0.4
-                        * (1.0 - 0.3 * (2.0 * std::f32::consts::PI * 1.66 * t).sin().powi(2));
+            for i in 0..total_samples {
+                let t = i as f32 / sample_rate as f32;
+                let cur_bar = ((t / bar_sec) as usize).min(total_bars - 1);
+                let t_bar = t % bar_sec;
+                let beat_in_bar = (t_bar / beat_sec) as usize % 4;
+                let t_beat = t_bar % beat_sec;
+                let sixteenth_idx = (t_bar / sixteenth_sec) as usize % 16;
+                let t_sixteenth = t_bar % sixteenth_sec;
 
-                    let arp_step = ((seg_t * 8.0) as usize) % chord.len();
-                    let arp_f = chord[arp_step] * 2.0;
-                    let arp_env = (-6.0 * ((seg_t * 8.0) % 1.0)).exp();
-                    let arp = (2.0 * std::f32::consts::PI * arp_f * t).sin() * arp_env * 0.2;
+                // 1. Kick Drum (Punchy 4-on-the-floor on beats 0, 1, 2, 3)
+                let kick_env = (-t_beat * 24.0).exp().clamp(0.0, 1.0);
+                let kick_freq = 45.0 + 120.0 * (-t_beat * 38.0).exp();
+                let kick = (2.0 * std::f32::consts::PI * kick_freq * t_beat).sin() * kick_env * 0.52;
 
-                    buffer[idx] = (chord_val * 0.35 + bass * 0.45 + arp * 0.2) * env;
+                // 2. Snare / Clap (Beats 1 and 3)
+                let mut snare = 0.0f32;
+                if beat_in_bar == 1 || beat_in_bar == 3 {
+                    let snare_env = (-t_beat * 18.0).exp().clamp(0.0, 1.0);
+                    let snare_body = (2.0 * std::f32::consts::PI * 220.0 * t_beat).sin() * snare_env * 0.25;
+                    let snare_noise = next_noise() * snare_env * 0.32;
+                    snare = snare_body + snare_noise;
                 }
+
+                // 3. Fast Rolling 16th-note Hi-Hats
+                let hat_accent = if sixteenth_idx % 2 == 1 { 0.22 } else { 0.12 };
+                let hat_env = (-t_sixteenth * 55.0).exp().clamp(0.0, 1.0);
+                let hat = next_noise() * hat_env * hat_accent;
+
+                // 4. Heavy Distorted 808 / Saw Bassline (Driving syncopated rhythm)
+                let root_f = bar_roots[cur_bar];
+                let is_bass_hit = matches!(sixteenth_idx, 0 | 3 | 6 | 8 | 10 | 12 | 14);
+                let mut bass = 0.0f32;
+                if is_bass_hit {
+                    let bass_env = (-t_sixteenth * 9.0).exp().clamp(0.0, 1.0);
+                    let sub = (2.0 * std::f32::consts::PI * root_f * t).sin();
+                    let saw = (2.0 * ((t * root_f) % 1.0) - 1.0) * 0.4;
+                    bass = ((sub * 0.7 + saw * 0.3) * bass_env * 1.5).tanh() * 0.45;
+                }
+
+                // 5. High-Octane PvP Lead Arpeggio
+                let mel_set = &bar_melodies[(cur_bar / 2) % 4];
+                let note_idx = (sixteenth_idx / 2) % 8;
+                let lead_f = mel_set[note_idx];
+                let lead_env = (-t_sixteenth * 14.0).exp().clamp(0.0, 1.0);
+                let lead_osc1 = (2.0 * std::f32::consts::PI * lead_f * t).sin();
+                let lead_osc2 = (2.0 * std::f32::consts::PI * (lead_f * 1.004) * t).sin();
+                let lead = (lead_osc1 * 0.6 + lead_osc2 * 0.4) * lead_env * 0.28;
+
+                // 6. Atmospheric Dark Minor Pad
+                let pad1 = (2.0 * std::f32::consts::PI * (root_f * 2.0) * t).sin();
+                let pad2 = (2.0 * std::f32::consts::PI * (root_f * 2.4) * t).sin();
+                let pad = (pad1 + pad2) * 0.08;
+
+                let mix = kick + snare + hat + bass + lead + pad;
+                buffer[i] = mix.clamp(-0.95, 0.95);
             }
 
-            // Seamless loop crossfade
-            let fade_len = (sample_rate as f32 * 0.3) as usize;
+            // Seamless 0.25-second loop crossfade
+            let fade_len = (sample_rate as f32 * 0.25) as usize;
             for i in 0..fade_len {
                 let weight = i as f32 / fade_len as f32;
                 let v_start = buffer[i];

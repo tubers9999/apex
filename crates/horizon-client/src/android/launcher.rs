@@ -889,6 +889,11 @@ impl ApplicationHandler for Launcher {
         }
         if !self.custom_bgm_checked {
             self.custom_bgm_checked = true;
+            if let Some(ch) = self.custom_bgm_channel.take() {
+                if let Some(audio) = &mut self.audio {
+                    audio.stop_custom_stream(ch);
+                }
+            }
             let candidates = [
                 self.home.join("theme/bgm.ogg"),
                 self.home.join("theme/music.ogg"),
@@ -915,7 +920,7 @@ impl ApplicationHandler for Launcher {
                     horizon_client::audio::Audio::new(&self.home.join(".local/horizon-client/26.3"))
                 });
                 let (samples, rate) = horizon_client::audio::apex_cyber_bgm_samples();
-                self.custom_bgm_channel = audio.play_custom_samples(samples, rate, 0.40, true);
+                self.custom_bgm_channel = audio.play_custom_samples(samples, rate, 0.42, true);
             }
         }
         if let Some(audio) = &mut self.audio {
