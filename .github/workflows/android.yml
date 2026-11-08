@@ -113,17 +113,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cat << 'EOF' > release_notes.md
-          ### ⚡ Apex (ARM64) — by RedGlitchX
+          ### ⚡ Apex (ARM64) — RedGlitchX Edition
 
           Minecraft Java Edition 26.3 ultra-fast Rust client ported to Android by **RedGlitchX** (based on Starling & Horizon engines).
 
-          #### 📱 Features:
-          - **Apex Control Hub & Touch System:** Pojav & Bedrock touch controls, full HUD editor, virtual mouse, customizable button shapes (Circle, Hexagon, Octagon, Square, Diamond), custom colors and opacity.
+          #### 📱 RedGlitchX Edition Features:
+          - **🎯 Apex PvP Hitmarkers ("Ack" Sound):** Instant punchy audio feedback when striking hostile mobs or players in PvP.
+          - **⌨️ Live Keystrokes & CPS Overlay:** WASD + Space key visualizer with 1-second sliding-window CPS counters for Left and Right clicks, illuminated in signature Apex Crimson (`#F51C48`).
+          - **🚀 1-Tap Ultra FPS Booster:** Instantly toggle entity culling, cave culling, animated textures, and LOD optimizations for smooth 60-120+ FPS.
+          - **🎵 Built-in Apex Cyber Synthwave BGM:** Looping cyberpunk soundtrack playing directly out of the box with quick Mute/Play controls.
+          - **🌌 Signature Apex Cyber Neon Theme:** Deep crimson gradient with liquid glass sheen and glowing corner accents.
+          - **🧩 Mod Menu on Title & In-Game Screens:** One-tap access to installed `.hmod` and `.hnmod` mods with live interactive ON/OFF toggles.
+          - **🖼️ Custom Media Pickers:** Import wallpapers (`background.png`), videos (`background.mp4`), or audio (`bgm.ogg`) straight from phone storage.
+          - **🕹️ Apex Control Hub & Touch System:** Pojav & Bedrock touch controls, full HUD editor, virtual mouse, customizable button shapes (Circle, Hexagon, Octagon, Square, Diamond), custom colors and opacity without control-switching glitches.
           - **Live Performance Stats Overlay:** Real-time FPS, frame timings (ms), CPU/GPU usage graph right on screen.
-          - **Fast Cold Boot:** Instant startup with bundled assets pre-cached.
           - **Shader Pack Support:** Naga/WGSL shader engine tuned for Mali & Adreno mobile GPUs.
-          - **Native Modding (`.hnmod` & `.hmod`):** Full native mod loading out of the box.
-          - **Hotbar Long-Press Drop & Quick Craft All:** Shift-tap to craft all, hold slot to drop single/stack items.
           - **Native Storage Access (SAF):** Android DocumentsProvider integrated seamlessly.
           EOF
 

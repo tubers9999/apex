@@ -1351,6 +1351,57 @@ impl Audio {
         );
         Some(id)
     }
+    /// Plays an in-memory mono PCM sample buffer directly through the mixer (looping or one-shot).
+    pub fn play_custom_samples(
+        &mut self,
+        samples: Arc<Vec<f32>>,
+        rate: u32,
+        volume: f32,
+        looping: bool,
+    ) -> Option<ChannelId> {
+        let mut mixer = self.backend.mixer.lock().ok()?;
+        self.backend.next += 1;
+        let id = self.backend.next;
+        mixer.channels.insert(
+            id,
+            Channel {
+                samples: Some((samples, rate)),
+                position: 0.0,
+                state: State::Playing,
+                gain: volume.clamp(0.0, 1.0) * self.master.clamp(0.0, 1.0),
+                pitch: 1.0,
+                linear: None,
+                looping,
+                at: [0.0; 3],
+                relative: true,
+                owner: self.backend.owner,
+                world: self.backend.world,
+                started: None,
+            },
+        );
+        Some(id)
+    }
+    /// Plays the signature Apex PvP hitmarker sound effect ("ack") when striking hostile mobs or players.
+    pub fn play_apex_hit_sound(&mut self, home: Option<&Path>) {
+        if let Some(h) = home {
+            let custom_hit = h.join("theme/hit.ogg");
+            let custom_ack = h.join("theme/ack.ogg");
+            let target = if custom_hit.is_file() {
+                Some(custom_hit)
+            } else if custom_ack.is_file() {
+                Some(custom_ack)
+            } else {
+                None
+            };
+            if let Some(p) = target {
+                if self.play_custom_stream(&p, 0.95, false).is_some() {
+                    return;
+                }
+            }
+        }
+        let (samples, rate) = apex_hit_sound_samples();
+        self.play_custom_samples(samples, rate, 0.95, false);
+    }
     /// Stops a custom playing audio channel.
     pub fn stop_custom_stream(&mut self, channel: ChannelId) {
         if let Ok(mut mixer) = self.backend.mixer.lock() {
@@ -1508,6 +1559,100 @@ impl Sounds for Audio {
     fn update_category_volume(&mut self, source: usize, gain: f32) {
         self.bound().update_category_volume(source, gain);
     }
+}
+
+/// Generates or returns the precomputed Apex PvP hitmarker ("ack") PCM audio waveform.
+pub fn apex_hit_sound_samples() -> (Arc<Vec<f32>>, u32) {
+    static CACHED: std::sync::OnceLock<(Arc<Vec<f32>>, u32)> = std::sync::OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            let sample_rate = 44100u32;
+            let duration_secs = 0.09f32; // 90ms punchy, crisp hitmarker "ack"
+            let total_samples = (sample_rate as f32 * duration_secs) as usize;
+            let mut buffer = Vec::with_capacity(total_samples);
+            for i in 0..total_samples {
+                let t = i as f32 / sample_rate as f32;
+                let progress = i as f32 / total_samples as f32;
+                // Snappy frequency drop from 2400Hz to 1200Hz for the punchy "ack" transient
+                let freq = 2400.0 * (-12.0 * progress).exp() + 1200.0 * (1.0 - progress);
+                let phase = 2.0 * std::f32::consts::PI * freq * t;
+                let phase2 = 2.0 * std::f32::consts::PI * (freq * 1.5) * t;
+                // Instantaneous 2ms smooth rise and exponential decay
+                let attack = (t / 0.002).clamp(0.0, 1.0);
+                let decay = (-22.0 * progress).exp();
+                let sample = (phase.sin() * 0.75 + phase2.sin() * 0.25) * attack * decay * 0.85;
+                buffer.push(sample);
+            }
+            (Arc::new(buffer), sample_rate)
+        })
+        .clone()
+}
+
+/// Generates or returns the precomputed Apex Cyber Chillwave looping background music.
+pub fn apex_cyber_bgm_samples() -> (Arc<Vec<f32>>, u32) {
+    static CACHED: std::sync::OnceLock<(Arc<Vec<f32>>, u32)> = std::sync::OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            let sample_rate = 22050u32;
+            let duration_secs = 9.6f32; // 4 bars at 100 BPM
+            let total_samples = (sample_rate as f32 * duration_secs) as usize;
+            let mut buffer = vec![0.0f32; total_samples];
+
+            // Cyber chord progression: Am9, Fmaj7, Dm9, Em7
+            let chords: [&[f32]; 4] = [
+                &[110.0, 130.81, 164.81, 196.0, 246.94],
+                &[87.31, 110.0, 130.81, 164.81, 220.0],
+                &[73.42, 110.0, 130.81, 146.83, 174.61],
+                &[82.41, 123.47, 146.83, 164.81, 196.0],
+            ];
+
+            let seg_len = total_samples / 4;
+            for (c_idx, chord) in chords.iter().enumerate() {
+                let c_start = c_idx * seg_len;
+                let c_end = if c_idx < 3 { (c_idx + 1) * seg_len } else { total_samples };
+                let c_samples = c_end - c_start;
+                for i in 0..c_samples {
+                    let idx = c_start + i;
+                    let t = idx as f32 / sample_rate as f32;
+                    let seg_t = i as f32 / c_samples as f32;
+                    let env = (i as f32 / (sample_rate as f32 * 0.15)).clamp(0.0, 1.0)
+                        * ((c_samples - i) as f32 / (sample_rate as f32 * 0.15)).clamp(0.0, 1.0);
+
+                    let mut chord_val = 0.0f32;
+                    for &f in chord.iter() {
+                        let osc1 = (2.0 * std::f32::consts::PI * f * t).sin();
+                        let osc2 = (2.0 * std::f32::consts::PI * (f * 1.003) * t).sin();
+                        chord_val += (osc1 + osc2) * 0.5;
+                    }
+                    chord_val /= chord.len() as f32;
+
+                    let root_f = chord[0] * 0.5;
+                    let bass = (2.0 * std::f32::consts::PI * root_f * t).sin()
+                        * 0.4
+                        * (1.0 - 0.3 * (2.0 * std::f32::consts::PI * 1.66 * t).sin().powi(2));
+
+                    let arp_step = ((seg_t * 8.0) as usize) % chord.len();
+                    let arp_f = chord[arp_step] * 2.0;
+                    let arp_env = (-6.0 * ((seg_t * 8.0) % 1.0)).exp();
+                    let arp = (2.0 * std::f32::consts::PI * arp_f * t).sin() * arp_env * 0.2;
+
+                    buffer[idx] = (chord_val * 0.35 + bass * 0.45 + arp * 0.2) * env;
+                }
+            }
+
+            // Seamless loop crossfade
+            let fade_len = (sample_rate as f32 * 0.3) as usize;
+            for i in 0..fade_len {
+                let weight = i as f32 / fade_len as f32;
+                let v_start = buffer[i];
+                let v_end = buffer[total_samples - fade_len + i];
+                buffer[i] = v_start * weight + v_end * (1.0 - weight);
+                buffer[total_samples - fade_len + i] = v_end * (1.0 - weight) + v_start * weight;
+            }
+
+            (Arc::new(buffer), sample_rate)
+        })
+        .clone()
 }
 
 #[cfg(test)]

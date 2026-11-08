@@ -1,24 +1,34 @@
-# Apex — RedGlitchX Edition
+# Apex Client — RedGlitchX Edition
 
-A high-performance native Android client for Minecraft Java 26.3 with GoyControl, MCPE schemes, native `.hmod` mods, and custom shaders. Powered by RedGlitchX.
+A high-performance native Android client for Minecraft Java 26.3 with GoyControl, MCPE schemes, native `.hmod` mods, custom shaders, and competitive PvP features. Ported and enhanced by **RedGlitchX**.
 
-**Android 9+ · Vulkan · GoyControl & MCPE · Sandboxed `.hmod` Mods · Custom Wallpapers & BGM**
+**Android 9+ · Vulkan · Keystrokes & CPS · Ultra FPS Booster · PvP Hitmarkers · GoyControl & MCPE · Sandboxed `.hmod` Mods · Cyber Theme & BGM**
 
 [Download APK](https://github.com/tubers9999/apex/releases) · [Build & play](docs/android.md) · [Contribute](CONTRIBUTING_ANDROID.md) ·
-[Report an Android bug](https://github.com/tubers9999/apex/issues/new?template=android-bug.yml) ·
-[Discord community](https://discord.gg/PG79z2PhjG)
+[Report an Android bug](https://github.com/tubers9999/apex/issues/new?template=android-bug.yml)
+
+## ⚡ RedGlitchX Exclusive Features
+
+- **🎯 Apex PvP Hitmarker Sound ("Ack"):** Instant, punchy audio feedback whenever you strike a hostile mob, aggressive creature, or enemy player in PvP.
+- **⌨️ Live Keystrokes & CPS HUD:** Real-time WASD + Spacebar visualizer with 1-second sliding-window CPS counters for Left & Right clicks, glowing in signature Apex Crimson (`#F51C48`).
+- **🚀 1-Tap Ultra FPS Booster:** Instantly toggle entity culling, cave culling, animated textures, and texture LOD optimizations for stable 60-120+ FPS on budget devices.
+- **🎵 Built-in Apex Cyber Synthwave BGM:** Looping cyberpunk synthwave soundtrack playing directly inside the launcher out-of-the-box (with quick Mute / Play controls).
+- **🌌 Signature Apex Cyber Launcher Theme:** Deep dark neon crimson gradient with procedural liquid glass sheen and subtle glowing corner accents.
+- **🧩 Mod Menu Direct Buttons:** Dedicated "Mods" buttons right on the Title Screen and In-Game Pause Screen with instant ON/OFF toggles.
+- **🖼️ Custom Media Pickers:** Import wallpapers (`background.png`), animated background video (`background.mp4`), or custom audio (`bgm.ogg`) straight from your phone files.
+- **🕹️ Glitch-Free Controls:** Fixed touch latching and stuck movements when switching presets on mobile screens.
 
 ## What works
 
 - Four touch schemes: joystick or D-pad, each with tap or crosshair aiming.
 - Editable button positions, sizes and opacity; handedness, circle size, optional
   360-degree movement, Auto Sprint and Sprint-button visibility.
-- Java multiplayer, including the Hypixel Arcade lobby shown below.
+- Button shapes: Circle, Hexagon, Octagon, Square, and Diamond with custom colors.
+- Java multiplayer, including Hypixel Arcade, Bedwars, and custom servers.
 - Native launcher, verified resource downloads, resource packs and `.hmod` import.
 - Vulkan rendering modes and resolution scaling; Android keyboard, clipboard,
   AAudio sound and phone vibration through the existing game settings.
-- Account status and Android Keystore storage; the current sign-in configuration
-  is still for development. [Feature support and remaining work](docs/android-features.md).
+- Account status and Android Keystore storage. [Feature support and remaining work](docs/android-features.md).
 
 The engine targets Minecraft Java **26.3**. Sandboxed `.hmod`
 code mods run on 64-bit APKs. Source-only `.hnmod` mods require a separately
@@ -244,12 +254,16 @@ Scores: 0 (absent), 0.25 (started), 0.5 (playable, major features missing), 0.75
 
 Skins served over https show the default skin unless already cached; pack icons show the unknown-pack texture in game; item tooltips lack attribute lines.
 
-## Licence
+## Licence & Copyright
 
-[MIT](LICENSE), for the project's original work; dependencies keep their own licences ([notices](THIRD_PARTY_NOTICES.md)). Minecraft is a trademark of Mojang Synergies AB; its code and assets belong to Mojang and Microsoft under the [Minecraft EULA](https://www.minecraft.net/en-us/eula).
+**Copyright (c) 2026 RedGlitchX. All rights reserved.**  
+Original work Copyright (c) 2026 Ludovic Marie and the Horizon contributors under the [MIT License](LICENSE).
 
-## Author
+Dependencies retain their respective licenses (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). Minecraft is a trademark of Mojang Synergies AB; its code and assets belong to Mojang and Microsoft under the [Minecraft EULA](https://www.minecraft.net/en-us/eula).
 
-Made by [Ludovic Marie](https://lu4ovic.com) ([@ludovic111](https://github.com/ludovic111)).
+## Credits & Upstream Authors
+
+- **Apex Edition Maintainer & Lead:** [RedGlitchX](https://github.com/tubers9999)
+- **Original Engine Creator:** [Ludovic Marie](https://lu4ovic.com) ([@ludovic111](https://github.com/ludovic111)) and the Horizon/Starling contributors.
 
 </details>

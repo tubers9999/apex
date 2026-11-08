@@ -1810,6 +1810,10 @@ impl<'a> Ui<'a> {
             self.fill(x, wave2_y.clamp(y, (y + h - wave_h).max(y)), w, wave_h * 0.85, wave2_col);
             // High-luminance top glass sheen edge
             self.fill(x, y, w, 2.0, color::with_alpha(0xFFFFFF, 0.14));
+            // Subtle ambient neon cyber corner glows
+            let corner_glow = color::with_alpha(theme.accent, 0.04);
+            self.fill(x, y, (w * 0.35).min(240.0), 120.0, corner_glow);
+            self.fill(x + w - (w * 0.35).min(240.0), y + h - 120.0, (w * 0.35).min(240.0), 120.0, corner_glow);
         } else if theme.is_gradient {
             let mid = theme
                 .use_three_stops
@@ -2401,19 +2405,19 @@ pub struct LauncherThemeConfig {
 impl Default for LauncherThemeConfig {
     fn default() -> Self {
         Self {
-            preset: ThemePreset::ObsidianViolet,
+            preset: ThemePreset::CrimsonEmber,
             appearance: ThemeAppearance::Dark,
-            background_mode: BackgroundMode::Solid,
-            custom_bg_hex: "#13111C".into(),
-            custom_surface_hex: "#1D192B".into(),
-            custom_accent_hex: "#9A7BFF".into(),
+            background_mode: BackgroundMode::Gradient,
+            custom_bg_hex: "#140A0F".into(),
+            custom_surface_hex: "#22121A".into(),
+            custom_accent_hex: "#F51C48".into(),
             gradient_direction: GradientDirection::DiagonalDown,
-            gradient_start_hex: "#1A1333".into(),
-            gradient_mid_hex: "#131A2E".into(),
-            gradient_end_hex: "#0D0B14".into(),
-            gradient_mid_pos: 0.50,
+            gradient_start_hex: "#240E17".into(),
+            gradient_mid_hex: "#170C14".into(),
+            gradient_end_hex: "#0A060C".into(),
+            gradient_mid_pos: 0.48,
             use_three_stops: true,
-            liquid_glass: false,
+            liquid_glass: true,
         }
     }
 }

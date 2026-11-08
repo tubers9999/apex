@@ -11255,6 +11255,13 @@ impl Game<'_> {
                 None,
                 amount,
             );
+            let is_hostile_or_player = self.mobs[index].hostile()
+                || self.mobs[index].kind.id == "minecraft:player"
+                || self.mobs[index].ai.target.is_some();
+            if is_hostile_or_player {
+                let home = horizon_client::logging::game_home();
+                self.audio.play_apex_hit_sound(Some(&home));
+            }
         }
         if let Some(p) = self.player.as_mut() {
             if p.attack_log.len() >= 64 {

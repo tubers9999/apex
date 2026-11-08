@@ -899,14 +899,23 @@ impl ApplicationHandler for Launcher {
                 self.catalog.config.game_home(&self.home).join("theme/pvp.ogg"),
                 self.catalog.config.game_home(&self.home).join("theme/pvp_music.ogg"),
             ];
+            let mut started = false;
             for p in &candidates {
                 if p.is_file() {
                     let audio = self.audio.get_or_insert_with(|| {
                         horizon_client::audio::Audio::new(&self.home.join(".local/horizon-client/26.3"))
                     });
                     self.custom_bgm_channel = audio.play_custom_stream(p, 0.45, true);
+                    started = true;
                     break;
                 }
+            }
+            if !started && self.custom_bgm_channel.is_none() {
+                let audio = self.audio.get_or_insert_with(|| {
+                    horizon_client::audio::Audio::new(&self.home.join(".local/horizon-client/26.3"))
+                });
+                let (samples, rate) = horizon_client::audio::apex_cyber_bgm_samples();
+                self.custom_bgm_channel = audio.play_custom_samples(samples, rate, 0.40, true);
             }
         }
         if let Some(audio) = &mut self.audio {

@@ -8084,6 +8084,13 @@ impl Game<'_> {
             self.send(S::Attack(play::Attack {
                 id: self.mobs[i].id as i32,
             }));
+            let is_hostile_or_player = self.mobs[i].hostile()
+                || self.mobs[i].kind.id == "minecraft:player"
+                || self.mobs[i].ai.target.is_some();
+            if is_hostile_or_player {
+                let home = horizon_client::logging::game_home();
+                self.audio.play_apex_hit_sound(Some(&home));
+            }
             self.remote_player_attack(i);
             self.reset_attack_strength();
         } else if !self.entity_targeted()

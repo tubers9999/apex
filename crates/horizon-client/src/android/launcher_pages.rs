@@ -251,6 +251,7 @@ pub(super) enum Action {
     ImportCustomWallpaper,
     ImportCustomVideo,
     ImportCustomAudio,
+    ToggleBuiltinBgm,
     OpenThemeFolder,
     OpenFolder(horizon_client::content_files::Kind),
     ToggleSection(usize),
@@ -5019,6 +5020,41 @@ impl Launcher {
                     self.list_targets.push((btn_r, Action::OpenThemeFolder));
                 }
 
+                // 10. Built-in Apex Cyber BGM toggle
+                cy += 60.0;
+                if cy + 54.0 >= list_top && cy <= list_bottom {
+                    ui.rounded(content_x, cy, content_w, 52.0, 12.0, my3_card_bg());
+                    ui.border(content_x, cy, content_w, 52.0, 12.0, my3_card_border());
+                    ui.icon(Icon::Audio, content_x + 12.0, cy + 15.0, 22.0, my3_accent());
+                    ui.text(
+                        Face::SemiBold,
+                        12.0,
+                        content_x + 42.0,
+                        cy + 10.0,
+                        my3_text(),
+                        "Built-in Apex Cyber BGM",
+                    );
+                    let bgm_active = self.custom_bgm_channel.is_some();
+                    ui.text(
+                        Face::Regular,
+                        9.5,
+                        content_x + 42.0,
+                        cy + 28.0,
+                        if bgm_active { my3_accent() } else { my3_muted() },
+                        if bgm_active { "Playing signature cyberpunk synth loop" } else { "Launcher audio muted" },
+                    );
+                    let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
+                    button(
+                        ui,
+                        &mut self.targets,
+                        btn_r,
+                        if bgm_active { "Mute BGM" } else { "Play BGM" },
+                        Action::ToggleBuiltinBgm,
+                        bgm_active,
+                    );
+                    self.list_targets.push((btn_r, Action::ToggleBuiltinBgm));
+                }
+
                 ui.set_clip(None);
             }
             SettingsCategory::Controls => {
@@ -6293,6 +6329,21 @@ impl Launcher {
                 let theme_dir = self.catalog.config.game_home(&self.home).join("theme");
                 if let Err(e) = crate::documents::begin_theme_media(theme_dir, "bgm.ogg") {
                     self.catalog.status = e;
+                }
+            }
+            Some(Action::ToggleBuiltinBgm) => {
+                if let Some(ch) = self.custom_bgm_channel.take() {
+                    if let Some(audio) = &mut self.audio {
+                        audio.stop_custom_stream(ch);
+                    }
+                    self.catalog.status = "Apex Cyber BGM paused.".into();
+                } else {
+                    let audio = self.audio.get_or_insert_with(|| {
+                        horizon_client::audio::Audio::new(&self.home.join(".local/horizon-client/26.3"))
+                    });
+                    let (samples, rate) = horizon_client::audio::apex_cyber_bgm_samples();
+                    self.custom_bgm_channel = audio.play_custom_samples(samples, rate, 0.40, true);
+                    self.catalog.status = "Playing Apex Cyber BGM.".into();
                 }
             }
             Some(Action::OpenThemeFolder) => {
