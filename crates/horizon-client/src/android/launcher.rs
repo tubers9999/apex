@@ -338,7 +338,7 @@ impl Launcher {
             return Ok(());
         }
         let window = Arc::new(
-            events.create_window(Window::default_attributes().with_title("Apex Client"))?,
+            events.create_window(Window::default_attributes().with_title("Apex"))?,
         );
         crate::display::prepare(&window)?;
         let vanilla_dir = self

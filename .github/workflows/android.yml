@@ -97,6 +97,7 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p dist
+          cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/apex-arm64.apk
           cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/apex-client-arm64.apk
           cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/horizon-android-arm64.apk
           ls -lh dist/
@@ -104,15 +105,15 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apex-client-arm64.apk
-          path: dist/apex-client-arm64.apk
+          name: apex-arm64.apk
+          path: dist/apex-arm64.apk
 
       - name: Publish to GitHub Releases (v0.1)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cat << 'EOF' > release_notes.md
-          ### ⚡ Apex Client (ARM64) — by RedGlitchX
+          ### ⚡ Apex (ARM64) — by RedGlitchX
 
           Minecraft Java Edition 26.3 ultra-fast Rust client ported to Android by **RedGlitchX** (based on Starling & Horizon engines).
 
@@ -129,6 +130,6 @@ jobs:
           gh release delete v0.1 -y || true
           git tag -d v0.1 2>/dev/null || true
           git push origin :refs/tags/v0.1 2>/dev/null || true
-          gh release create v0.1 dist/apex-client-arm64.apk dist/horizon-android-arm64.apk \
-            --title "Apex Client (ARM64) — RedGlitchX Edition" \
+          gh release create v0.1 dist/apex-arm64.apk dist/horizon-android-arm64.apk \
+            --title "Apex (ARM64) — RedGlitchX Edition" \
             --notes-file release_notes.md
