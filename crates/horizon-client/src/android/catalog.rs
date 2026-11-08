@@ -1845,7 +1845,7 @@ impl Catalog {
             }
             horizon_client::content_files::Kind::Datapacks => {
                 let file_name = format!("file/{}", item.file.trim_start_matches("datapacks/"));
-                let mut update_dp = |dp_path: &Path| {
+                let update_dp = |dp_path: &Path| {
                     let mut data: serde_json::Value = std::fs::read(dp_path)
                         .ok()
                         .and_then(|b| serde_json::from_slice(&b).ok())
@@ -1987,6 +1987,32 @@ impl Catalog {
                 settings.horizon.shader_pack.clear();
             }
             settings.save(&path);
+            if item.kind == horizon_client::content_files::Kind::Datapacks {
+                let file_name = format!("file/{}", item.file.trim_start_matches("datapacks/"));
+                let clean_dp = |dp_path: &Path| {
+                    if let Ok(b) = std::fs::read(dp_path) {
+                        if let Ok(mut data) = serde_json::from_slice::<serde_json::Value>(&b) {
+                            if let Some(arr) = data.get_mut("enabled").and_then(|v| v.as_array_mut()) {
+                                arr.retain(|v| v.as_str() != Some(file_name.as_str()));
+                            }
+                            if let Some(arr) = data.get_mut("disabled").and_then(|v| v.as_array_mut()) {
+                                arr.retain(|v| v.as_str() != Some(file_name.as_str()));
+                            }
+                            let _ = std::fs::write(dp_path, serde_json::to_vec_pretty(&data).unwrap_or_default());
+                        }
+                    }
+                };
+                clean_dp(&game.join("datapacks.json"));
+                if let Ok(entries) = std::fs::read_dir(game.join("saves")) {
+                    for entry in entries.flatten() {
+                        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                            clean_dp(&entry.path().join("datapacks.json"));
+                            let save_dp = entry.path().join("datapacks").join(&item.file);
+                            let _ = std::fs::remove_file(save_dp);
+                        }
+                    }
+                }
+            }
             if item.kind == horizon_client::content_files::Kind::Mods {
                 let mut on = horizon_client::mod_list::ModList::load(&game);
                 if let Some(id) = item

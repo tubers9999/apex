@@ -2540,7 +2540,7 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                 // Left file-type icon + badge pill (MOD / PACK / SHADER)
                 let kind_icon = match item.kind {
                     Kind::Mods => Icon::Mods,
-                    Kind::Packs => Icon::Packs,
+                    Kind::Packs | Kind::Datapacks => Icon::Packs,
                     Kind::Shaders => Icon::Shaders,
                 };
                 ui.rounded(

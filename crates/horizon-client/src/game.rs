@@ -8192,16 +8192,16 @@ impl Game<'_> {
                 if let Some(t) = self.audio.last_hit_time {
                     let elapsed = t.elapsed().as_millis();
                     if elapsed < 160 {
-                        let alpha = 1.0 - (elapsed as f32 / 160.0);
-                        let cx = wi * 0.5;
-                        let cy = hi * 0.5;
-                        let color = [0.98, 0.12, 0.28, alpha * 0.95];
+                        let alpha = (255.0 * (1.0 - (elapsed as f32 / 160.0))) as u8;
+                        let cx = wi as f32 * 0.5;
+                        let cy = hi as f32 * 0.5;
+                        let color = rgba(245, 28, 72, alpha);
                         let d = 5.0;
                         let len = 4.0;
-                        batch.quad([cx - d - len, cy - d - len, len, 1.5], color);
-                        batch.quad([cx + d, cy - d - len, len, 1.5], color);
-                        batch.quad([cx - d - len, cy + d, len, 1.5], color);
-                        batch.quad([cx + d, cy + d, len, 1.5], color);
+                        batch.fill(&self.gui.atlas, cx - d - len, cy - d - len, len, 1.5, color);
+                        batch.fill(&self.gui.atlas, cx + d, cy - d - len, len, 1.5, color);
+                        batch.fill(&self.gui.atlas, cx - d - len, cy + d, len, 1.5, color);
+                        batch.fill(&self.gui.atlas, cx + d, cy + d, len, 1.5, color);
                     }
                 }
             }
