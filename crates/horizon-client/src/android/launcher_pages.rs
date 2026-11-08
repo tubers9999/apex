@@ -1190,7 +1190,7 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
     Some((final_w, final_h, final_rgba))
 }
 
-fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_client::ui_theme::Theme) {
+fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_client::ui_theme::ResolvedTheme) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -1395,7 +1395,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
             my3_border(),
         );
         let nav_start_y = 62.0;
-        let nav_step = ((h - nav_start_y - 14.0) / 7.0).clamp(32.0, 44.0);
+        let nav_step = ((h - nav_start_y - 14.0) / (Page::ALL.len() as f32).max(1.0)).clamp(28.0, 44.0);
         let nav_h = (nav_step - 4.0).clamp(28.0, 38.0);
         let selected_idx = Page::ALL
             .iter()
@@ -1757,6 +1757,8 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                     "Mods"
                 } else if page == Page::Shaders {
                     "Shader Packs"
+                } else if page == Page::Datapacks {
+                    "Data Packs"
                 } else {
                     "Resource Packs"
                 },
@@ -1793,6 +1795,10 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
             let field_w = (content_w - search_btn_w - 8.0).max(120.0);
             let search_hint = if page == Page::Mods {
                 "Search mods or paste .hmod HTTPS link..."
+            } else if page == Page::Datapacks {
+                "Search data packs on Modrinth..."
+            } else if page == Page::Shaders {
+                "Search shaders..."
             } else {
                 "Search catalog..."
             };

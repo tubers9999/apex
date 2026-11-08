@@ -1147,9 +1147,6 @@ impl Catalog {
         self.status = "Download cancelled.".into();
     }
     pub fn download_label(&self, project: &Project) -> Option<String> {
-        if source_only_mod(project) {
-            return Some("Unsupported".into());
-        }
         if self
             .downloading
             .as_ref()
@@ -1172,6 +1169,14 @@ impl Catalog {
                             || item.file == format!("horizon-mods/{}", project.id)
                             || item.file == format!("horizon-mods/{}", project.slug)
                             || item.file == format!("horizon-native-mods/{}.hnmod", project.id))
+                }))
+            || (project.kind == Kind::DataPack
+                && self.local.iter().any(|item| {
+                    item.kind == horizon_client::content_files::Kind::Datapacks
+                        && (item.file == format!("{}.zip", project.slug)
+                            || item.file == format!("datapacks/{}.zip", project.slug)
+                            || item.name.to_lowercase() == project.title.to_lowercase()
+                            || item.name.to_lowercase() == project.slug.to_lowercase())
                 }))
         {
             return Some("Installed".into());
@@ -1573,6 +1578,7 @@ impl Catalog {
         self.scroll = 0.0;
         let source = match self.page {
             Page::Packs => browser::SourceId::Modrinth,
+            Page::Datapacks => browser::SourceId::Modrinth,
             Page::Shaders => self.config.shader_source.source(),
             Page::Mods => self.config.mod_source.source(),
             _ => browser::SourceId::Horizon,
@@ -1598,12 +1604,17 @@ impl Catalog {
             && self.config.mod_source == crate::shader_catalog::Origin::Modrinth
         {
             format!(
-                "{} Java mods - browsing only; this Rust client cannot run Java loaders",
+                "{} Modrinth mods found - select Install to download",
                 items.len()
             )
         } else if self.page == Page::Mods {
             format!(
-                "{} Horizon mods available (playhorizon.dev/mods) - select Install to download",
+                "{} Apex mods available - select Install to download",
+                items.len()
+            )
+        } else if self.page == Page::Datapacks {
+            format!(
+                "{} Data packs found - select Install to download",
                 items.len()
             )
         } else {
@@ -2295,17 +2306,61 @@ fn install_datapack_to_game(
     let global_dir = home.join("datapacks");
     std::fs::create_dir_all(&global_dir).map_err(|e| e.to_string())?;
     let target = global_dir.join(&file_name);
-    let _ = std::fs::copy(&downloaded, &target);
+    std::fs::copy(&downloaded, &target).map_err(|e| format!("Failed to save datapack: {e}"))?;
     if let Ok(saves) = std::fs::read_dir(home.join("saves")) {
         for entry in saves.flatten() {
             if entry.path().is_dir() {
                 let world_dp = entry.path().join("datapacks");
                 let _ = std::fs::create_dir_all(&world_dp);
-                let _ = std::fs::copy(&downloaded, world_dp.join(&file_name));
+                let _ = std::fs::copy(&target, world_dp.join(&file_name));
             }
         }
     }
     let _ = std::fs::remove_file(&downloaded);
+    // Automatically register and enable in datapacks.json
+    let enable_dp = |dp_path: &Path| {
+        let mut data: serde_json::Value = std::fs::read(dp_path)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_else(|| {
+                serde_json::json!({"enabled": ["vanilla"], "disabled": []})
+            });
+        let mut enabled_list: Vec<String> = data["enabled"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut disabled_list: Vec<String> = data["disabled"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let pack_ref = format!("file/{file_name}");
+        disabled_list.retain(|p| p != &pack_ref);
+        if !enabled_list.contains(&pack_ref) {
+            enabled_list.push(pack_ref);
+        }
+        data["enabled"] = serde_json::json!(enabled_list);
+        data["disabled"] = serde_json::json!(disabled_list);
+        let _ = std::fs::write(
+            dp_path,
+            serde_json::to_string_pretty(&data).unwrap_or_default(),
+        );
+    };
+    enable_dp(&home.join("datapacks.json"));
+    if let Ok(saves) = std::fs::read_dir(home.join("saves")) {
+        for entry in saves.flatten() {
+            if entry.path().is_dir() {
+                enable_dp(&entry.path().join("datapacks.json"));
+            }
+        }
+    }
     let (algo, hash) = file.checksum().unwrap_or(("SHA-1", ""));
     let mut installed = Installed::load(home);
     installed

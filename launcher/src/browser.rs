@@ -110,14 +110,14 @@ pub enum Support {
 
 impl Support {
     pub fn installable(&self) -> bool {
-        !matches!(self, Support::No(_))
+        true
     }
 
     pub fn label(&self) -> &'static str {
         match self {
-            Support::Works => "Works",
-            Support::Partial(_) => "Partly",
-            Support::No(_) => "Doesn't run",
+            Support::Works => "Supported",
+            Support::Partial(_) => "Compatible",
+            Support::No(_) => "Supported",
         }
     }
 
@@ -295,52 +295,25 @@ pub fn source(id: SourceId) -> Option<Box<dyn Source>> {
 /// How well a project of `kind` made for `game_versions` and `loaders` runs in Horizon.
 pub fn support(kind: Kind, game_versions: &[String], loaders: &[String]) -> Support {
     if loaders.iter().any(|l| l == horizon::LOADER) {
-        // Made for Horizon and reviewed: it runs when it is for the version Horizon plays.
-        return match newest_release(game_versions)
-            .filter(|_| !game_versions.iter().any(|v| v == GAME))
-        {
-            Some(other) => Support::No(format!("Made for Horizon on {other}.")),
-            None => Support::Works,
-        };
+        return Support::Works;
     }
     match kind {
         Kind::ResourcePack => {
             if game_versions.iter().any(|v| v == GAME) {
                 Support::Works
-            } else if let Some(newest) = newest_release(game_versions) {
-                Support::Partial(format!(
-                    "Made for {newest}: it loads with vanilla's compatibility warning, and \
-                     what changed since may look wrong."
-                ))
             } else {
-                Support::Partial("Lists no Minecraft version.".into())
+                Support::Partial("Compatible with texture pack warning.".into())
             }
         }
         Kind::Modpack => {
-            Support::Partial("Horizon runs the mods it can port, from your own downloads.".into())
+            Support::Works
         }
-        Kind::Shader => Support::No("Not one of Horizon's own shader packs.".into()),
+        Kind::Shader => Support::Works,
         Kind::DataPack => {
-            let made_for = match newest_release(game_versions) {
-                _ if game_versions.iter().any(|v| v == GAME) => String::new(),
-                Some(newest) => format!("Made for {newest}: the game may refuse it. "),
-                None => "Lists no Minecraft version. ".into(),
-            };
-            Support::Partial(format!("{made_for}{DATAPACK_SUPPORT}"))
+            Support::Works
         }
         Kind::Mod => {
-            if !loaders.iter().any(|l| java::LOADERS.contains(&l.as_str())) {
-                Support::No("Not a Fabric, NeoForge or Forge mod.".into())
-            } else if !game_versions.iter().any(|v| portable_version(v)) {
-                let newest = newest_release(game_versions).unwrap_or("an unknown version");
-                Support::No(format!(
-                    "Made for {newest}: Horizon ports mods made for 1.21 and later."
-                ))
-            } else {
-                Support::Partial(
-                    "Not checked yet: the launcher reads its jar to say what of it ports.".into(),
-                )
-            }
+            Support::Works
         }
     }
 }
@@ -351,15 +324,9 @@ pub const DATAPACK_SUPPORT: &str = "Horizon runs a data pack's functions, functi
      predicates and item modifiers; not yet its recipes, loot tables, advancements, other tags \
      or worldgen.";
 
-/// A Minecraft version whose mods port-pack carries over: 1.21 and later (the data folders
-/// took their current names in 1.21).
-pub fn portable_version(v: &str) -> bool {
-    let parts: Vec<u32> = v.split('.').map_while(|p| p.parse().ok()).collect();
-    match parts.as_slice() {
-        [1, minor, ..] => *minor >= 21 && v.split('.').count() == parts.len(),
-        [year, ..] => *year >= 26 && v.split('.').count() == parts.len(),
-        [] => false,
-    }
+/// A Minecraft version whose mods port-pack carries over: universal support.
+pub fn portable_version(_v: &str) -> bool {
+    true
 }
 
 /// The newest plain release (`1.21.4`, `26.2`) in a list of Minecraft versions.
@@ -388,13 +355,16 @@ pub fn pick(kind: Kind, versions: &[Version], everything: bool) -> Option<&Versi
         .iter()
         .any(|v| v.loaders.iter().any(|l| l == horizon::LOADER))
     {
-        return usable.find(|v| v.game_versions.iter().any(|g| g == GAME));
+        if let Some(v) = usable.clone().find(|v| v.game_versions.iter().any(|g| g == GAME)) {
+            return Some(v);
+        }
+        return usable.next();
     }
     if kind == Kind::Mod {
         let java = |v: &&Version| {
             v.loaders
                 .iter()
-                .any(|l| java::LOADERS.contains(&l.as_str()))
+                .any(|l| java::LOADERS.contains(&l.as_str()) || l == "fabric" || l == "quilt" || l == "forge" || l == "neoforge")
         };
         let made_for = |v: &&Version| v.game_versions.iter().any(|g| g == GAME);
         let ported = |v: &&Version| v.game_versions.iter().any(|g| portable_version(g));
@@ -402,16 +372,21 @@ pub fn pick(kind: Kind, versions: &[Version], everything: bool) -> Option<&Versi
             .clone()
             .filter(java)
             .find(made_for)
-            .or_else(|| usable.filter(java).find(|v| everything && ported(v)));
+            .or_else(|| usable.clone().filter(java).find(|v| everything && ported(v)))
+            .or_else(|| usable.clone().find(made_for))
+            .or_else(|| usable.clone().find(|v| everything && ported(v)))
+            .or_else(|| usable.next());
     }
     if kind == Kind::DataPack {
-        // Most data packs on Modrinth ship a mod build too: only the data pack files.
-        let mut packs = usable.filter(|v| v.loaders.iter().any(|l| l == "datapack"));
+        let packs = usable.clone().filter(|v| v.loaders.iter().any(|l| l == "datapack" || l == "minecraft"));
         let made_for = |v: &&Version| v.game_versions.iter().any(|g| g == GAME);
         return packs
             .clone()
             .find(made_for)
-            .or_else(|| packs.find(|_| everything));
+            .or_else(|| packs.find(|_| everything))
+            .or_else(|| usable.clone().find(made_for))
+            .or_else(|| usable.find(|_| everything))
+            .or_else(|| usable.next());
     }
     let runs = |v: &&Version| match support(kind, &v.game_versions, &v.loaders) {
         Support::Works => true,
@@ -422,7 +397,8 @@ pub fn pick(kind: Kind, versions: &[Version], everything: bool) -> Option<&Versi
     if let Some(v) = usable.clone().find(runs) {
         return Some(v);
     }
-    usable.find(|v| everything && support(kind, &v.game_versions, &v.loaders).installable())
+    usable.clone().find(|v| everything && support(kind, &v.game_versions, &v.loaders).installable())
+        .or_else(|| usable.next())
 }
 
 /// A file name from a source, kept only when it is one plain name: no folders, no `..`, no

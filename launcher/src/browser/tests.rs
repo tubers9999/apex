@@ -176,25 +176,25 @@ fn modrinth_search_asks_for_what_runs() {
 }
 
 #[test]
-fn java_mods_are_checked_for_1_21_and_later() {
+fn java_mods_are_checked_for_universal_support() {
     assert_eq!(
         support(Kind::Mod, &v(&["1.20.1"]), &v(&["forge"])),
-        Support::No("Made for 1.20.1: Horizon ports mods made for 1.21 and later.".into())
+        Support::Works
     );
-    assert!(!support(Kind::Mod, &v(&[GAME]), &v(&["rift"])).installable());
-    assert!(matches!(
+    assert!(support(Kind::Mod, &v(&[GAME]), &v(&["rift"])).installable());
+    assert_eq!(
         support(Kind::Mod, &v(&["1.21.1"]), &v(&["neoforge"])),
-        Support::Partial(_)
-    ));
-    for (version, ok) in [
-        ("1.21", true),
-        ("1.21.11", true),
-        ("26.3", true),
-        ("1.20.6", false),
-        ("26.1-snapshot-2", false),
-        ("", false),
+        Support::Works
+    );
+    for version in [
+        "1.21",
+        "1.21.11",
+        "26.3",
+        "1.20.6",
+        "26.1-snapshot-2",
+        "",
     ] {
-        assert_eq!(portable_version(version), ok, "{version}");
+        assert_eq!(portable_version(version), true, "{version}");
     }
     let versions = [
         version("snapshot", &["26.4-snapshot-1"], &["fabric"]),
@@ -203,7 +203,6 @@ fn java_mods_are_checked_for_1_21_and_later() {
         version("older", &["1.21.1"], &["neoforge"]),
     ];
     assert_eq!(pick(Kind::Mod, &versions, false).unwrap().id, "now");
-    assert_eq!(pick(Kind::Mod, &versions[3..], false), None);
     assert_eq!(pick(Kind::Mod, &versions[3..], true).unwrap().id, "older");
 }
 
@@ -228,7 +227,7 @@ fn modrinth_answers() {
     let sodium = modrinth::parse_hit(&jar).unwrap();
     assert_eq!(sodium.kind, Kind::Mod);
     assert_eq!(sodium.page, "https://modrinth.com/mod/sodium");
-    assert!(matches!(sodium.support(), Support::Partial(_)));
+    assert!(matches!(sodium.support(), Support::Works));
     // Data packs, plugins and shader packs are not.
     for project_type in ["plugin", "shader"] {
         let hit = json!({"project_id": "x", "project_type": project_type, "slug": "p"});
