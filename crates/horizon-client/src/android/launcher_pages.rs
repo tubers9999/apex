@@ -1209,7 +1209,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
         let color = if i % 2 == 0 {
             horizon_client::ui_theme::color::with_alpha(th.accent, alpha)
         } else {
-            horizon_client::ui_theme::color::with_alpha(th.accent_secondary, alpha * 0.85)
+            horizon_client::ui_theme::color::with_alpha(th.accent_soft, alpha * 0.85)
         };
         ui.rounded(0.0, y_base, w, band_h, band_h * 0.5, color);
     }

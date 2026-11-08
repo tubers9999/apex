@@ -383,9 +383,9 @@ pub fn pick(kind: Kind, versions: &[Version], everything: bool) -> Option<&Versi
         return packs
             .clone()
             .find(made_for)
-            .or_else(|| packs.find(|_| everything))
+            .or_else(|| packs.clone().find(|_| everything))
             .or_else(|| usable.clone().find(made_for))
-            .or_else(|| usable.find(|_| everything))
+            .or_else(|| usable.clone().find(|_| everything))
             .or_else(|| usable.next());
     }
     let runs = |v: &&Version| match support(kind, &v.game_versions, &v.loaders) {

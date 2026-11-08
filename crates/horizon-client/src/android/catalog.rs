@@ -1175,8 +1175,8 @@ impl Catalog {
                     item.kind == horizon_client::content_files::Kind::Datapacks
                         && (item.file == format!("{}.zip", project.slug)
                             || item.file == format!("datapacks/{}.zip", project.slug)
-                            || item.name.to_lowercase() == project.title.to_lowercase()
-                            || item.name.to_lowercase() == project.slug.to_lowercase())
+                            || item.title.to_lowercase() == project.title.to_lowercase()
+                            || item.title.to_lowercase() == project.slug.to_lowercase())
                 }))
         {
             return Some("Installed".into());
