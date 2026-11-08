@@ -117,7 +117,9 @@ jobs:
           High-performance mobile rendering, custom touch engine, instant PvP hitmarkers.
 
           #### Features:
-          - [+] Apex PvP Hitmarkers ("Ack" Sound): Instant punchy audio feedback when striking hostile mobs or players in PvP.
+          - [+] In-App Datapack Downloader: Search, browse, download, and toggle Minecraft Java Datapacks directly from Modrinth with automated installation into active worlds.
+          - [+] Out-of-the-Box Mod Activation: Bundled mods (Minimap, Zoom, Recipes, SmartF3) active out-of-the-box, plus full discovery and loading of .hmod, .hnmod, .jar, and .zip content mods.
+          - [+] Visual PvP Hitmarker & "Ack" Sound: Razor-sharp crimson crosshair hitmarker visual feedback paired with instant punchy audio when striking hostile mobs or players in PvP.
           - [+] Live Keystrokes & CPS Overlay: WASD + Space key visualizer with 1-second sliding-window CPS counters for Left and Right clicks.
           - [+] 1-Tap Ultra FPS Booster: Instantly toggle entity culling, cave culling, animated textures, and LOD optimizations for smooth 60-120+ FPS.
           - [+] Built-in Apex Cyber Synthwave BGM: Looping cyberpunk soundtrack playing directly out of the box with quick Mute/Play controls.

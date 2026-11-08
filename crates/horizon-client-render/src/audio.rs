@@ -262,6 +262,8 @@ pub struct Audio {
     /// milliseconds on Android, so the render thread only receives its result.
     #[cfg(feature = "audio")]
     device_probe: Option<std::sync::mpsc::Receiver<DeviceProbe>>,
+    /// Timestamp of the last successful hitmarker trigger for visual HUD feedback.
+    pub last_hit_time: Option<std::time::Instant>,
 }
 fn decode(path: &Path) -> Option<(Vec<f32>, u32)> {
     use symphonia::core::{
@@ -943,6 +945,7 @@ impl Audio {
             device_probe_started: std::time::Instant::now(),
             #[cfg(feature = "audio")]
             device_probe: None,
+            last_hit_time: None,
         }
     }
     #[cfg(not(feature = "audio"))]
@@ -1105,6 +1108,7 @@ impl Audio {
             device_probe_started: std::time::Instant::now(),
             #[cfg(feature = "audio")]
             device_probe: None,
+            last_hit_time: None,
         }
     }
     /// Sync the volume options, refreshing the categories that changed
@@ -1383,6 +1387,7 @@ impl Audio {
     }
     /// Plays the signature Apex PvP hitmarker sound effect ("ack") when striking hostile mobs or players.
     pub fn play_apex_hit_sound(&mut self, home: Option<&Path>) {
+        self.last_hit_time = Some(std::time::Instant::now());
         if let Some(h) = home {
             let custom_hit = h.join("theme/hit.ogg");
             let custom_ack = h.join("theme/ack.ogg");

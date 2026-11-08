@@ -773,6 +773,7 @@ fn page_icon(page: Page) -> Icon {
         Page::Play => Icon::Play,
         Page::Mods => Icon::Mods,
         Page::Packs => Icon::Packs,
+        Page::Datapacks => Icon::Packs,
         Page::Shaders => Icon::Shaders,
         Page::Installed => Icon::Installed,
         Page::Settings => Icon::Settings,
@@ -1307,8 +1308,8 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
             my3_border(),
         );
         let nav_start_y = 62.0;
-        let nav_step = ((h - nav_start_y - 14.0) / 6.0).clamp(36.0, 48.0);
-        let nav_h = (nav_step - 5.0).clamp(32.0, 41.0);
+        let nav_step = ((h - nav_start_y - 14.0) / 7.0).clamp(32.0, 44.0);
+        let nav_h = (nav_step - 4.0).clamp(28.0, 38.0);
         let selected_idx = Page::ALL
             .iter()
             .position(|p| *p == self.catalog.page)
@@ -1735,6 +1736,7 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
 
             let kind = match page {
                 Page::Mods => horizon_client::content_files::Kind::Mods,
+                Page::Datapacks => horizon_client::content_files::Kind::Datapacks,
                 Page::Shaders => horizon_client::content_files::Kind::Shaders,
                 _ => horizon_client::content_files::Kind::Packs,
             };
@@ -2359,6 +2361,7 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
             let import_kind = match self.catalog.installed_filter {
                 InstalledFilter::Mods | InstalledFilter::All => Kind::Mods,
                 InstalledFilter::Packs => Kind::Packs,
+                InstalledFilter::Datapacks => Kind::Datapacks,
                 InstalledFilter::Shaders => Kind::Shaders,
             };
             let imp_r = [content_x + search_w + sort_w + 14.0, row1_y, imp_w, 34.0];
@@ -2371,10 +2374,10 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                 true,
             );
 
-            // Row 2: Category filter pills (All, Mods, Resource Packs, Shaders)
+            // Row 2: Category filter pills (All, Mods, Resource Packs, Datapacks, Shaders)
             let row2_y = 136.0 + slide_y;
             let pill_gap = 6.0;
-            let pill_w = ((content_w - pill_gap * 3.0) / 4.0).max(64.0);
+            let pill_w = ((content_w - pill_gap * 4.0) / 5.0).max(52.0);
             for (i, filter) in InstalledFilter::ALL.into_iter().enumerate() {
                 let count = self
                     .catalog
@@ -2384,6 +2387,8 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                     .count();
                 let lbl = if compact && filter == InstalledFilter::Packs {
                     format!("Packs ({count})")
+                } else if compact && filter == InstalledFilter::Datapacks {
+                    format!("Data ({count})")
                 } else {
                     format!("{} ({count})", filter.label())
                 };
@@ -6392,6 +6397,7 @@ fn load_custom_wallpaper_cached(path: &std::path::Path) -> Option<(u32, u32, Vec
                 let folder = match kind {
                     horizon_client::content_files::Kind::Mods => "mods",
                     horizon_client::content_files::Kind::Packs => "packs",
+                    horizon_client::content_files::Kind::Datapacks => "datapacks",
                     horizon_client::content_files::Kind::Shaders => "shaders",
                 };
                 let id = crate::document_store::folder_id(self.catalog.config.profile, folder);

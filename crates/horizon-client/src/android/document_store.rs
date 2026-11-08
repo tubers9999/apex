@@ -534,6 +534,7 @@ pub const FM_ROOT_DIRS: &[(&str, &str)] = &[
     ("", "Root"),
     ("saves", "Worlds"),
     ("horizon-mods", "Mods"),
+    ("datapacks", "Datapacks"),
     ("resourcepacks", "Packs"),
     ("shaderpacks", "Shaders"),
     ("controls", "Controls"),
@@ -577,6 +578,7 @@ pub fn is_protected_root_folder(rel_path: &str) -> bool {
             clean,
             "saves"
                 | "horizon-mods"
+                | "datapacks"
                 | "resourcepacks"
                 | "shaderpacks"
                 | "controls"

@@ -8189,6 +8189,21 @@ impl Game<'_> {
                 });
                 let draws = hud_layout::crosshair(wi, hi, attack, full);
                 hud_layout::paint(&mut batch, &self.gui.atlas, &draws);
+                if let Some(t) = self.audio.last_hit_time {
+                    let elapsed = t.elapsed().as_millis();
+                    if elapsed < 160 {
+                        let alpha = 1.0 - (elapsed as f32 / 160.0);
+                        let cx = wi * 0.5;
+                        let cy = hi * 0.5;
+                        let color = [0.98, 0.12, 0.28, alpha * 0.95];
+                        let d = 5.0;
+                        let len = 4.0;
+                        batch.quad([cx - d - len, cy - d - len, len, 1.5], color);
+                        batch.quad([cx + d, cy - d - len, len, 1.5], color);
+                        batch.quad([cx - d - len, cy + d, len, 1.5], color);
+                        batch.quad([cx + d, cy + d, len, 1.5], color);
+                    }
+                }
             }
             if spectator {
                 self.draw_spectator_hotbar(&mut batch);

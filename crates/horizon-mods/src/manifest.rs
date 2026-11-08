@@ -335,6 +335,40 @@ impl Package {
                 let nat_text = std::fs::read_to_string(path.join("horizon-native.json"))
                     .map_err(|e| format!("horizon-native.json: {e}"))?;
                 (Ok(nat_text), wasm, true)
+            } else if toml.is_err()
+                && (path.join("fabric.mod.json").is_file()
+                    || path.join("pack.mcmeta").is_file()
+                    || path.join("assets").is_dir()
+                    || path.join("data").is_dir())
+            {
+                let mut discovered_namespaces = Vec::new();
+                for top in ["assets", "data"] {
+                    if let Ok(entries) = std::fs::read_dir(path.join(top)) {
+                        for e in entries.flatten() {
+                            let name = e.file_name().to_string_lossy().into_owned();
+                            if !name.is_empty()
+                                && !RESERVED_NAMESPACES.contains(&name.as_str())
+                                && !discovered_namespaces.contains(&name)
+                            {
+                                discovered_namespaces.push(name);
+                            }
+                        }
+                    }
+                }
+                let file_stem = path.file_stem().unwrap_or_default().to_string_lossy();
+                let raw_id = file_stem.to_lowercase().replace('-', "_");
+                let safe_id: String = raw_id
+                    .chars()
+                    .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_')
+                    .collect();
+                let safe_id = if safe_id.is_empty() { "mod".into() } else { safe_id };
+                let synth_json = serde_json::json!({
+                    "id": safe_id,
+                    "version": "1.0.0",
+                    "description": "Ported content mod",
+                    "namespaces": discovered_namespaces,
+                });
+                (Ok(synth_json.to_string()), wasm, true)
             } else {
                 (toml.map_err(|e| format!("{MANIFEST}: {e}")), wasm, false)
             }
@@ -363,7 +397,43 @@ impl Package {
                     .map_err(|_| "horizon-native.json: not UTF-8".to_string())?;
                 (Ok(nat_text), wasm, true)
             } else {
-                (Err(format!("{MANIFEST}: missing")), wasm, false)
+                let mut discovered_namespaces = Vec::new();
+                let mut has_content = false;
+                for i in 0..zip.len() {
+                    if let Ok(f) = zip.by_index_raw(i) {
+                        if let Ok(name) = f.name() {
+                            if name.starts_with("assets/") || name.starts_with("data/") {
+                                has_content = true;
+                                if let Some(ns) = name.split('/').nth(1) {
+                                    if !ns.is_empty()
+                                        && !RESERVED_NAMESPACES.contains(&ns)
+                                        && !discovered_namespaces.iter().any(|d: &String| d == ns)
+                                    {
+                                        discovered_namespaces.push(ns.to_owned());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if has_content || zip.by_name("fabric.mod.json").is_ok() || zip.by_name("pack.mcmeta").is_ok() {
+                    let file_stem = path.file_stem().unwrap_or_default().to_string_lossy();
+                    let raw_id = file_stem.to_lowercase().replace('-', "_");
+                    let safe_id: String = raw_id
+                        .chars()
+                        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_')
+                        .collect();
+                    let safe_id = if safe_id.is_empty() { "mod".into() } else { safe_id };
+                    let synth_json = serde_json::json!({
+                        "id": safe_id,
+                        "version": "1.0.0",
+                        "description": "Ported content mod",
+                        "namespaces": discovered_namespaces,
+                    });
+                    (Ok(synth_json.to_string()), wasm, true)
+                } else {
+                    (Err(format!("{MANIFEST}: missing")), wasm, false)
+                }
             }
         };
         let toml_str = toml?;
@@ -375,6 +445,8 @@ impl Package {
                 version: String,
                 #[serde(default)]
                 description: Option<String>,
+                #[serde(default)]
+                namespaces: Vec<String>,
             }
             let parsed: NativeJson = serde_json::from_str(&toml_str)
                 .map_err(|e| format!("horizon-native.json: {e}"))?;
@@ -406,7 +478,7 @@ impl Package {
                 } else {
                     vec![Capability::Registries]
                 },
-                namespaces: Vec::new(),
+                namespaces: parsed.namespaces,
                 experimental: Vec::new(),
             }
         } else {
@@ -463,9 +535,13 @@ pub fn find(dir: &Path) -> Vec<PathBuf> {
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
-            p.extension().is_some_and(|e| e == "hmod" || e == "hnmod")
+            p.extension().is_some_and(|e| e == "hmod" || e == "hnmod" || e == "jar" || e == "zip")
                 || p.join(MANIFEST).is_file()
                 || p.join("horizon-native.json").is_file()
+                || p.join("fabric.mod.json").is_file()
+                || p.join("pack.mcmeta").is_file()
+                || p.join("assets").is_dir()
+                || p.join("data").is_dir()
         })
         .collect();
     found.sort();

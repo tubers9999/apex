@@ -24,7 +24,7 @@ fn project_type(kind: Kind) -> &'static str {
 fn kind_of(project_type: &str) -> Option<Kind> {
     Kind::ALL
         .into_iter()
-        .filter(|k| !matches!(k, Kind::Shader | Kind::DataPack))
+        .filter(|k| !matches!(k, Kind::Shader))
         .find(|k| self::project_type(*k) == project_type)
 }
 

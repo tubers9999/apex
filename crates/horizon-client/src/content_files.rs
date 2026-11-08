@@ -9,14 +9,16 @@ use std::{
 pub enum Kind {
     Mods,
     Packs,
+    Datapacks,
     Shaders,
 }
 impl Kind {
-    pub const ALL: [Self; 3] = [Self::Mods, Self::Packs, Self::Shaders];
+    pub const ALL: [Self; 4] = [Self::Mods, Self::Packs, Self::Datapacks, Self::Shaders];
     pub fn folder(self) -> &'static str {
         match self {
             Self::Mods => "horizon-mods",
             Self::Packs => "resourcepacks",
+            Self::Datapacks => "datapacks",
             Self::Shaders => "shaderpacks",
         }
     }
@@ -24,14 +26,15 @@ impl Kind {
         match self {
             Self::Mods => "Mods",
             Self::Packs => "Resource Packs",
+            Self::Datapacks => "Data Packs",
             Self::Shaders => "Shaders",
         }
     }
     pub fn accepts(self, name: &str) -> bool {
         let lower = name.to_ascii_lowercase();
         match self {
-            Self::Mods => lower.ends_with(".hmod"),
-            Self::Packs => lower.ends_with(".zip"),
+            Self::Mods => lower.ends_with(".hmod") || lower.ends_with(".jar"),
+            Self::Packs | Self::Datapacks => lower.ends_with(".zip"),
             Self::Shaders => lower.ends_with(".zip") || lower.ends_with(".hshader"),
         }
     }
@@ -146,7 +149,7 @@ pub fn validate(
         }
     }
     if !match kind {
-        Kind::Packs => pack,
+        Kind::Packs | Kind::Datapacks => pack,
         Kind::Shaders => shader,
         Kind::Mods => manifest,
     } {

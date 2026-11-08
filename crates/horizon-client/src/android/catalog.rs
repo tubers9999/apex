@@ -302,16 +302,18 @@ pub enum Page {
     Play,
     Mods,
     Packs,
+    Datapacks,
     Shaders,
     Installed,
     Settings,
     Skins,
 }
 impl Page {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Play,
         Self::Mods,
         Self::Packs,
+        Self::Datapacks,
         Self::Shaders,
         Self::Installed,
         Self::Settings,
@@ -322,6 +324,7 @@ impl Page {
             Self::Play => "Play",
             Self::Mods => "Mods",
             Self::Packs => "Resource Pack",
+            Self::Datapacks => "Datapacks",
             Self::Shaders => "Shaders",
             Self::Installed => "Installed",
             Self::Settings => "Settings",
@@ -329,7 +332,7 @@ impl Page {
         }
     }
     pub fn is_catalog(self) -> bool {
-        matches!(self, Self::Packs | Self::Mods | Self::Shaders)
+        matches!(self, Self::Packs | Self::Mods | Self::Datapacks | Self::Shaders)
     }
 }
 enum Reply {
@@ -498,16 +501,18 @@ pub enum InstalledFilter {
     All,
     Mods,
     Packs,
+    Datapacks,
     Shaders,
 }
 
 impl InstalledFilter {
-    pub const ALL: [Self; 4] = [Self::All, Self::Mods, Self::Packs, Self::Shaders];
+    pub const ALL: [Self; 5] = [Self::All, Self::Mods, Self::Packs, Self::Datapacks, Self::Shaders];
     pub fn label(self) -> &'static str {
         match self {
             Self::All => "All",
             Self::Mods => "Mods",
             Self::Packs => "Resource Packs",
+            Self::Datapacks => "Data Packs",
             Self::Shaders => "Shaders",
         }
     }
@@ -516,6 +521,7 @@ impl InstalledFilter {
             Self::All => true,
             Self::Mods => kind == horizon_client::content_files::Kind::Mods,
             Self::Packs => kind == horizon_client::content_files::Kind::Packs,
+            Self::Datapacks => kind == horizon_client::content_files::Kind::Datapacks,
             Self::Shaders => kind == horizon_client::content_files::Kind::Shaders,
         }
     }
@@ -685,13 +691,18 @@ impl Catalog {
             self.installed_filter = match k {
                 horizon_client::content_files::Kind::Mods => InstalledFilter::Mods,
                 horizon_client::content_files::Kind::Packs => InstalledFilter::Packs,
+                horizon_client::content_files::Kind::Datapacks => InstalledFilter::Datapacks,
                 horizon_client::content_files::Kind::Shaders => InstalledFilter::Shaders,
             };
         }
         self.sections = [true; 3];
-        if let Some(i) = horizon_client::content_files::Kind::ALL
-            .iter()
-            .position(|k| Some(*k) == kind)
+        if let Some(i) = [
+            horizon_client::content_files::Kind::Mods,
+            horizon_client::content_files::Kind::Packs,
+            horizon_client::content_files::Kind::Shaders,
+        ]
+        .iter()
+        .position(|k| Some(*k) == kind)
         {
             self.sections[i] = true;
         }
@@ -730,6 +741,16 @@ impl Catalog {
                     horizon_client::content_files::Kind::Packs => {
                         settings.resource_packs.contains(&format!("file/{name}"))
                     }
+                    horizon_client::content_files::Kind::Datapacks => {
+                        let dp_path = game.join("datapacks.json");
+                        std::fs::read(&dp_path)
+                            .ok()
+                            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                            .and_then(|v| v["disabled"].as_array().cloned())
+                            .map_or(true, |arr| {
+                                !arr.iter().any(|p| p.as_str() == Some(&format!("file/{name}")))
+                            })
+                    }
                     horizon_client::content_files::Kind::Shaders => {
                         settings.horizon.shader_pack == name
                     }
@@ -742,6 +763,7 @@ impl Catalog {
                 let badge = match kind {
                     horizon_client::content_files::Kind::Mods => "MOD",
                     horizon_client::content_files::Kind::Packs => "PACK",
+                    horizon_client::content_files::Kind::Datapacks => "DATAPACK",
                     horizon_client::content_files::Kind::Shaders => "SHADER",
                 };
                 let ext_tag = if name.ends_with(".hmod") {
@@ -750,6 +772,8 @@ impl Catalog {
                     "Java Mod (.jar)"
                 } else if name.ends_with(".hshader") {
                     "Apex Shader (.hshader)"
+                } else if kind == horizon_client::content_files::Kind::Datapacks {
+                    "Data Pack (.zip)"
                 } else if kind == horizon_client::content_files::Kind::Shaders {
                     "Shader Pack (.zip)"
                 } else {
@@ -1599,6 +1623,7 @@ impl Catalog {
         std::thread::spawn(move || {
             let kind = match page {
                 Page::Mods => Kind::Mod,
+                Page::Datapacks => Kind::DataPack,
                 Page::Shaders => Kind::Shader,
                 _ => Kind::ResourcePack,
             };
@@ -1610,6 +1635,7 @@ impl Catalog {
                 query.everything = true;
                 browser::modrinth::search_shader_packs(&query)
             } else if page == Page::Packs
+                || page == Page::Datapacks
                 || (page == Page::Mods && source == browser::SourceId::Modrinth)
             {
                 query.everything = true;
@@ -1687,7 +1713,7 @@ impl Catalog {
             return;
         }
         let game = self.config.game_home(home);
-        if !matches!(project.kind, Kind::ResourcePack | Kind::Shader | Kind::Mod) {
+        if !matches!(project.kind, Kind::ResourcePack | Kind::Shader | Kind::Mod | Kind::DataPack) {
             return;
         }
         self.downloading = Some((project.source, project.id.clone()));
@@ -1696,6 +1722,7 @@ impl Catalog {
             Kind::ResourcePack => 14.6,
             Kind::Shader => 6.4,
             Kind::Mod => 3.8,
+            Kind::DataPack => 5.0,
             _ => 5.0,
         };
         self.transfer.reset();
@@ -1710,6 +1737,7 @@ impl Catalog {
         let status = match (project.kind, project.source) {
             (Kind::Shader, browser::SourceId::Modrinth) => "Downloading shader pack ZIP...",
             (Kind::Mod, browser::SourceId::Modrinth) => "Downloading and porting Modrinth mod...",
+            (Kind::DataPack, _) => "Downloading and installing Data Pack...",
             (Kind::Mod, _) => "Downloading Horizon mod package...",
             _ => "Checking compatibility and downloading...",
         };
@@ -1731,6 +1759,8 @@ impl Catalog {
                 && project.source == browser::SourceId::Modrinth
             {
                 crate::shader_catalog::install(source.as_ref(), &project, &game, &report)?
+            } else if project.kind == Kind::DataPack {
+                install_datapack_to_game(source.as_ref(), &project, &game, &report)?
             } else {
                 match browser::installed::install(source.as_ref(), &project, true, &game, &report) {
                     Ok(entries) => entries.len(),
@@ -1753,6 +1783,7 @@ impl Catalog {
                 format!("Installed {count} item(s). Open Play to load this profile."),
                 match project.kind {
                     Kind::Mod => horizon_client::content_files::Kind::Mods,
+                    Kind::DataPack => horizon_client::content_files::Kind::Datapacks,
                     Kind::Shader => horizon_client::content_files::Kind::Shaders,
                     _ => horizon_client::content_files::Kind::Packs,
                 },
@@ -1811,6 +1842,58 @@ impl Catalog {
                     settings.resource_packs.push(id);
                 }
                 settings.save(&path);
+            }
+            horizon_client::content_files::Kind::Datapacks => {
+                let file_name = format!("file/{}", item.file.trim_start_matches("datapacks/"));
+                let mut update_dp = |dp_path: &Path| {
+                    let mut data: serde_json::Value = std::fs::read(dp_path)
+                        .ok()
+                        .and_then(|b| serde_json::from_slice(&b).ok())
+                        .unwrap_or_else(|| {
+                            serde_json::json!({"enabled": ["vanilla"], "disabled": []})
+                        });
+                    let mut enabled_list: Vec<String> = data["enabled"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let mut disabled_list: Vec<String> = data["disabled"]
+                        .as_array()
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if item.enabled {
+                        enabled_list.retain(|p| p != &file_name);
+                        if !disabled_list.contains(&file_name) {
+                            disabled_list.push(file_name.clone());
+                        }
+                    } else {
+                        disabled_list.retain(|p| p != &file_name);
+                        if !enabled_list.contains(&file_name) {
+                            enabled_list.push(file_name.clone());
+                        }
+                    }
+                    data["enabled"] = serde_json::json!(enabled_list);
+                    data["disabled"] = serde_json::json!(disabled_list);
+                    let _ = std::fs::write(
+                        dp_path,
+                        serde_json::to_string_pretty(&data).unwrap_or_default(),
+                    );
+                };
+                update_dp(&game.join("datapacks.json"));
+                if let Ok(saves) = std::fs::read_dir(game.join("saves")) {
+                    for s in saves.flatten() {
+                        if s.path().is_dir() {
+                            update_dp(&s.path().join("datapacks.json"));
+                        }
+                    }
+                }
             }
             horizon_client::content_files::Kind::Shaders => {
                 settings.horizon.shader_pack = if item.enabled {
@@ -2141,6 +2224,80 @@ fn install_modrinth_jar_fallback(
         page: project.page.clone(),
         dependency: false,
         verdict: Some("Downloaded".into()),
+        skipped: Vec::new(),
+        namespaces: vec![slug],
+    });
+    installed.save(home)?;
+    progress(&format!("Installed {}", project.title), 1.0);
+    Ok(1)
+}
+
+fn install_datapack_to_game(
+    source: &dyn Source,
+    project: &Project,
+    home: &Path,
+    progress: &dyn Fn(&str, f32),
+) -> Result<usize, String> {
+    let versions = source.versions(project)?;
+    let version = browser::pick(Kind::DataPack, &versions, true)
+        .or_else(|| versions.iter().find(|v| v.file().is_some()))
+        .ok_or_else(|| format!("{} has no downloadable data pack version.", project.title))?;
+    let file = version
+        .file()
+        .ok_or_else(|| format!("{} has no primary file.", project.title))?;
+    let staging = home.join("mod-browser/downloads");
+    let title = format!("Downloading {} {}", project.title, version.number);
+    let downloaded = source.fetch(file, &staging, &|f| progress(&title, f))?;
+    let slug: String = project
+        .slug
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let slug = if slug.is_empty() {
+        "datapack".to_owned()
+    } else {
+        slug
+    };
+    let file_name = format!("{slug}.zip");
+    let relative = format!("datapacks/{file_name}");
+    let global_dir = home.join("datapacks");
+    std::fs::create_dir_all(&global_dir).map_err(|e| e.to_string())?;
+    let target = global_dir.join(&file_name);
+    let _ = std::fs::copy(&downloaded, &target);
+    if let Ok(saves) = std::fs::read_dir(home.join("saves")) {
+        for entry in saves.flatten() {
+            if entry.path().is_dir() {
+                let world_dp = entry.path().join("datapacks");
+                let _ = std::fs::create_dir_all(&world_dp);
+                let _ = std::fs::copy(&downloaded, world_dp.join(&file_name));
+            }
+        }
+    }
+    let _ = std::fs::remove_file(&downloaded);
+    let (algo, hash) = file.checksum().unwrap_or(("SHA-1", ""));
+    let mut installed = Installed::load(home);
+    installed
+        .entries
+        .retain(|e| !(e.source == project.source && e.project == project.id));
+    installed.entries.push(browser::installed::Entry {
+        source: project.source,
+        project: project.id.clone(),
+        slug: slug.clone(),
+        title: project.title.clone(),
+        kind: Kind::DataPack,
+        version: version.id.clone(),
+        number: version.number.clone(),
+        file: relative,
+        checksum: format!("{algo}:{hash}"),
+        page: project.page.clone(),
+        dependency: false,
+        verdict: Some("Installed".into()),
         skipped: Vec::new(),
         namespaces: vec![slug],
     });

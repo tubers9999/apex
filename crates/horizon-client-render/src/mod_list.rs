@@ -99,14 +99,15 @@ impl ModList {
         };
         let (enabled, disabled) = (ids("true"), ids("false"));
         #[cfg(target_os = "android")]
-        let disabled = {
-            let mut disabled = disabled;
+        let (enabled, disabled) = {
+            let mut enabled = enabled;
+            let disabled = disabled;
             for (id, _, _) in ANDROID_BUNDLED {
-                if !enabled.contains(id) {
-                    disabled.insert(id.to_owned());
+                if !disabled.contains(id) {
+                    enabled.insert(id.to_owned());
                 }
             }
-            disabled
+            (enabled, disabled)
         };
         let mut keys: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
         for (k, v) in text.lines().filter_map(|l| l.split_once(':')) {
