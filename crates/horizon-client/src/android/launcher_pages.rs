@@ -4958,12 +4958,12 @@ impl Launcher {
                         content_x + 42.0,
                         cy + 10.0,
                         my3_text(),
-                        "Custom Background Music (BGM)",
+                        "Custom Background & PvP Music (BGM)",
                     );
                     let sub = if has_bg_audio {
-                        "Active: theme/bgm.ogg (Looping)"
+                        "Active: theme/bgm.ogg (PvP Music Looping)"
                     } else {
-                        "Choose audio (.ogg, .mp3) from phone files"
+                        "Choose PvP music or custom audio (.ogg, .mp3) from files"
                     };
                     ui.text(
                         Face::Regular,

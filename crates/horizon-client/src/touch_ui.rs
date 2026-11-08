@@ -70,6 +70,8 @@ pub struct TouchUi {
     pointer_drag: Option<u64>,
     held_keys: BTreeMap<u64, KeyCode>,
     pub f3_latched: bool,
+    pub lmb_clicks: std::collections::VecDeque<std::time::Instant>,
+    pub rmb_clicks: std::collections::VecDeque<std::time::Instant>,
 }
 
 impl Default for TouchUi {
@@ -113,6 +115,8 @@ impl Default for TouchUi {
             pointer_drag: None,
             held_keys: BTreeMap::new(),
             f3_latched: false,
+            lmb_clicks: std::collections::VecDeque::new(),
+            rmb_clicks: std::collections::VecDeque::new(),
         }
     }
 }
@@ -171,6 +175,10 @@ pub enum InGameMenuAction {
     ToggleGameAnimations,
     /// Toggle performance stats overlay (FPS, frame time ms, CPU/GPU, frame graph).
     ToggleStats,
+    /// Toggle Apex Keystrokes & CPS Overlay (W, A, S, D, LMB, RMB with live CPS counter).
+    ToggleKeystrokes,
+    /// Toggle 1-Tap Ultra FPS Performance Booster (reduces particles, culls entities, optimizes Vulkan LOD).
+    ToggleFpsBooster,
     /// Open the Mods and mod settings configuration screen.
     OpenMods,
     /// Send a custom keyboard key, mouse button/scroll, or gameplay action token immediately.
@@ -577,6 +585,95 @@ impl TouchUi {
         self.custom_input_picker = crate::touch::PickerStep::None;
         self.floating_menu = false;
         Some(tok.to_owned())
+    }
+
+    pub fn record_lmb_click(&mut self) {
+        self.lmb_clicks.push_back(std::time::Instant::now());
+    }
+    pub fn record_rmb_click(&mut self) {
+        self.rmb_clicks.push_back(std::time::Instant::now());
+    }
+    pub fn get_cps(&mut self) -> (usize, usize) {
+        let now = std::time::Instant::now();
+        let one_sec = std::time::Duration::from_secs(1);
+        while self.lmb_clicks.front().is_some_and(|&t| now.duration_since(t) > one_sec) {
+            self.lmb_clicks.pop_front();
+        }
+        while self.rmb_clicks.front().is_some_and(|&t| now.duration_since(t) > one_sec) {
+            self.rmb_clicks.pop_front();
+        }
+        (self.lmb_clicks.len(), self.rmb_clicks.len())
+    }
+
+    /// Draws the sleek, high-visibility Apex PvP Keystrokes & CPS Overlay on the HUD.
+    /// Shows responsive WASD keys, Left/Right CPS counters, and status badges.
+    pub fn draw_apex_hud(
+        &mut self,
+        b: &mut HudBatch,
+        a: &HudAtlas,
+        keys: &std::collections::BTreeSet<KeyCode>,
+        lmb_down: bool,
+        rmb_down: bool,
+    ) {
+        use crate::ui_theme::{Face, Ui, color};
+        let (left_cps, right_cps) = self.get_cps();
+        let mut ui = Ui::mobile(a, b, (0.0, 0.0));
+        let (w, _h) = (ui.w, ui.h);
+
+        // Position Keystrokes widget at top-right
+        let kw = 26.0;
+        let kh = 24.0;
+        let gap = 3.0;
+        let total_w = kw * 3.0 + gap * 2.0;
+        let start_x = (w - total_w - 14.0).max(10.0);
+        let start_y = 12.0;
+
+        let bg_idle = color::hex(0x12101A, 180);
+        let border_idle = color::hex(0xFFFFFF, 35);
+        let text_idle = color::hex(0xF0EEF8, 230);
+
+        let bg_active = color::hex(0xF51C48, 230); // Glowing Apex Crimson
+        let border_active = color::hex(0xFF5B7A, 255);
+        let text_active = color::hex(0xFFFFFF, 255);
+
+        let is_w = keys.contains(&KeyCode::KeyW);
+        let is_a = keys.contains(&KeyCode::KeyA);
+        let is_s = keys.contains(&KeyCode::KeyS);
+        let is_d = keys.contains(&KeyCode::KeyD);
+        let is_space = keys.contains(&KeyCode::Space);
+
+        let draw_key = |ui: &mut Ui<'_>, rx: f32, ry: f32, rw: f32, rh: f32, label: &str, active: bool| {
+            let bg = if active { bg_active } else { bg_idle };
+            let border = if active { border_active } else { border_idle };
+            let fg = if active { text_active } else { text_idle };
+            ui.rounded(rx, ry, rw, rh, 5.0, bg);
+            ui.border(rx, ry, rw, rh, 5.0, border);
+            ui.centered_fit(Face::SemiBold, 9.5, [rx, ry, rw, rh], fg, label);
+        };
+
+        // Row 1: [ W ]
+        let w_x = start_x + kw + gap;
+        draw_key(&mut ui, w_x, start_y, kw, kh, "W", is_w);
+
+        // Row 2: [ A ] [ S ] [ D ]
+        let row2_y = start_y + kh + gap;
+        draw_key(&mut ui, start_x, row2_y, kw, kh, "A", is_a);
+        draw_key(&mut ui, start_x + kw + gap, row2_y, kw, kh, "S", is_s);
+        draw_key(&mut ui, start_x + (kw + gap) * 2.0, row2_y, kw, kh, "D", is_d);
+
+        // Row 3: [ LMB: x CPS ] [ RMB: y CPS ]
+        let row3_y = row2_y + kh + gap;
+        let mouse_w = (total_w - gap) * 0.5;
+        let lmb_text = format!("L: {} CPS", left_cps);
+        let rmb_text = format!("R: {} CPS", right_cps);
+        draw_key(&mut ui, start_x, row3_y, mouse_w, kh, &lmb_text, lmb_down);
+        draw_key(&mut ui, start_x + mouse_w + gap, row3_y, mouse_w, kh, &rmb_text, rmb_down);
+
+        // Row 4: [ ---- SPACE ---- ]
+        let row4_y = row3_y + kh + gap;
+        draw_key(&mut ui, start_x, row4_y, total_w, 15.0, "SPACE", is_space);
+
+        ui.finish();
     }
 
     pub fn refresh_presets_cache(&mut self, style: crate::touch::ControlStyle) {
@@ -2403,6 +2500,14 @@ impl TouchUi {
                     self.floating_menu = false;
                     return Some(InGameMenuAction::OpenMods);
                 }
+                let keystrokes_y = body_y + 500.0;
+                if inside([cx, keystrokes_y, cw, 46.0]) {
+                    return Some(InGameMenuAction::ToggleKeystrokes);
+                }
+                let booster_y = body_y + 554.0;
+                if inside([cx, booster_y, cw, 46.0]) {
+                    return Some(InGameMenuAction::ToggleFpsBooster);
+                }
             }
             1 => {
                 // Tab 1: Controls
@@ -2806,7 +2911,7 @@ impl TouchUi {
         // Scrollable Right Content Panel with scissor clip and tab transition slide
         let tab_slide = (1.0 - tab_ease) * 14.0;
         let content_height = match self.hub_tab {
-            0 => 510.0,
+            0 => 620.0,
             1 => 368.0,
             2 => 410.0,
             3 => 242.0,
@@ -3100,6 +3205,22 @@ impl TouchUi {
                     "Configure native .hnmod, .hmod & active client mods",
                     None,
                     Some("Open >"),
+                );
+                draw_toggle_row(
+                    &mut ui,
+                    body_y + 500.0,
+                    "Apex Keystrokes & CPS Overlay",
+                    "Live W A S D keys, Left/Right CPS counter & spacebar",
+                    Some(settings.keystrokes_overlay),
+                    None,
+                );
+                draw_toggle_row(
+                    &mut ui,
+                    body_y + 554.0,
+                    "⚡ Ultra FPS Booster",
+                    "1-Tap mobile performance boost: culls entities & optimizes Vulkan LOD",
+                    Some(settings.fps_booster),
+                    None,
                 );
             }
             1 => {

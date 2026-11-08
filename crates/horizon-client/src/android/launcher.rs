@@ -892,8 +892,12 @@ impl ApplicationHandler for Launcher {
             let candidates = [
                 self.home.join("theme/bgm.ogg"),
                 self.home.join("theme/music.ogg"),
+                self.home.join("theme/pvp.ogg"),
+                self.home.join("theme/pvp_music.ogg"),
                 self.catalog.config.game_home(&self.home).join("theme/bgm.ogg"),
                 self.catalog.config.game_home(&self.home).join("theme/music.ogg"),
+                self.catalog.config.game_home(&self.home).join("theme/pvp.ogg"),
+                self.catalog.config.game_home(&self.home).join("theme/pvp_music.ogg"),
             ];
             for p in &candidates {
                 if p.is_file() {

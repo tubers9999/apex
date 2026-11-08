@@ -533,6 +533,13 @@ impl Game<'_> {
     }
 
     fn android_custom_mouse(&mut self, button: MouseButton, down: bool) -> Result<()> {
+        if down {
+            match button {
+                MouseButton::Left => self.pad.touch_ui.record_lmb_click(),
+                MouseButton::Right => self.pad.touch_ui.record_rmb_click(),
+                _ => {}
+            }
+        }
         if self.screen == Screen::Options && self.options_waiting_for_key() {
             if down {
                 return self.options_bind_mouse(button);
@@ -1049,6 +1056,35 @@ impl Game<'_> {
                         2 => horizon_client::graphics::Overlay::Graph,
                         _ => horizon_client::graphics::Overlay::Off,
                     };
+                    let _ = self.pad.touch.settings.save();
+                    self.settings.touch = self.pad.touch.settings.clone();
+                    self.settings.save(&Self::options_path());
+                }
+                InGameMenuAction::ToggleKeystrokes => {
+                    self.pad.touch.settings.keystrokes_overlay =
+                        !self.pad.touch.settings.keystrokes_overlay;
+                    let _ = self.pad.touch.settings.save();
+                    self.settings.touch = self.pad.touch.settings.clone();
+                    self.settings.save(&Self::options_path());
+                }
+                InGameMenuAction::ToggleFpsBooster => {
+                    let next = !self.pad.touch.settings.fps_booster;
+                    self.pad.touch.settings.fps_booster = next;
+                    self.settings.horizon.entity_culling = next;
+                    self.settings.horizon.cave_culling = true;
+                    if next {
+                        self.settings.horizon.animated_textures = false;
+                        self.pad.touch.settings.disable_game_animations = true;
+                        horizon_client::ui_theme::motion::set_game_animations_disabled(true);
+                    } else {
+                        self.settings.horizon.animated_textures = true;
+                        self.pad.touch.settings.disable_game_animations = false;
+                        horizon_client::ui_theme::motion::set_game_animations_disabled(false);
+                    }
+                    if let Some(r) = self.renderer.as_mut() {
+                        r.animated_textures = self.settings.horizon.animated_textures;
+                        r.invalidate_menu_blur();
+                    }
                     let _ = self.pad.touch.settings.save();
                     self.settings.touch = self.pad.touch.settings.clone();
                     self.settings.save(&Self::options_path());

@@ -518,6 +518,12 @@ pub struct Settings {
     /// Performance Stats Overlay: 0 = Off, 1 = FPS & Frame Latency (Text), 2 = FPS + Frame Graph.
     #[serde(default)]
     pub stats_overlay: u8,
+    /// Apex Keystrokes & CPS Overlay (W, A, S, D, LMB, RMB with live CPS counter).
+    #[serde(default)]
+    pub keystrokes_overlay: bool,
+    /// 1-Tap Ultra FPS Performance Booster (optimizes Vulkan particles, animations and LOD).
+    #[serde(default)]
+    pub fps_booster: bool,
     #[serde(deserialize_with = "deserialize_layouts")]
     pub layouts: [[Placement; 14]; 3],
 }
@@ -653,6 +659,8 @@ impl Default for Settings {
             floating_menu_pos: default_floating_pos(),
             snap_to_grid: false,
             stats_overlay: 0,
+            keystrokes_overlay: false,
+            fps_booster: false,
             layouts,
         }
     }
@@ -1266,6 +1274,8 @@ impl Settings {
         let prev_ui_vibrate = self.ui_vibrate;
         let prev_hub = self.show_control_hub;
         let prev_auto_jump = self.auto_jump;
+        let prev_keystrokes = self.keystrokes_overlay;
+        let prev_booster = self.fps_booster;
         let mut loaded = Self::load_preset(game_home, style, id);
         let clean = loaded.preset_id.clone();
         loaded.active_mcpe_preset = if style == ControlStyle::Mcpe {
@@ -1287,6 +1297,8 @@ impl Settings {
         loaded.ui_vibrate = prev_ui_vibrate;
         loaded.show_control_hub = prev_hub;
         loaded.auto_jump = prev_auto_jump;
+        loaded.keystrokes_overlay = prev_keystrokes;
+        loaded.fps_booster = prev_booster;
         *self = loaded;
         let resolved = Self::resolve_home(game_home);
         let _ = self.save_to(&resolved.join("horizon-touch.json"));
@@ -1325,6 +1337,8 @@ impl Settings {
         let prev_ui_vibrate = self.ui_vibrate;
         let prev_hub = self.show_control_hub;
         let prev_auto_jump = self.auto_jump;
+        let prev_keystrokes = self.keystrokes_overlay;
+        let prev_booster = self.fps_booster;
         let mut loaded = Self::load_preset(game_home, target, &target_preset_id);
         loaded.control_style = target;
         loaded.active_mcpe_preset = prev_mcpe;
@@ -1338,6 +1352,8 @@ impl Settings {
         loaded.ui_vibrate = prev_ui_vibrate;
         loaded.show_control_hub = prev_hub;
         loaded.auto_jump = prev_auto_jump;
+        loaded.keystrokes_overlay = prev_keystrokes;
+        loaded.fps_booster = prev_booster;
         *self = loaded;
         let resolved = Self::resolve_home(game_home);
         let _ = self.save_to(&resolved.join("horizon-touch.json"));

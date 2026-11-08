@@ -15179,6 +15179,15 @@ impl Game<'_> {
                 self.pad
                     .touch_ui
                     .draw(&mut hud, &self.gui.atlas, self.pad_in_menu());
+                if self.pad.touch.settings.keystrokes_overlay && !self.ui.hide_gui {
+                    self.pad.touch_ui.draw_apex_hud(
+                        &mut hud,
+                        &self.gui.atlas,
+                        &self.keys,
+                        self.left,
+                        self.right,
+                    );
+                }
                 self.pad.touch_ui.draw_floating_menu(
                     &mut hud,
                     &self.gui.atlas,
