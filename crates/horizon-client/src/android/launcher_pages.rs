@@ -1338,7 +1338,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
         self.targets.push((eq_btn_rect, Action::OpenControlEditor));
 
         let brand_w = (eq_btn_rect[0] - 66.0).max(70.0);
-        ui.text(Face::SemiBold, 16.0, 54.0, 10.0, my3_text(), "Apex");
+        ui.text(Face::SemiBold, 16.0, 54.0, 10.0, my3_text(), "Horizon");
         let version_line = format!("Android {}", crate::backend::VERSION);
         let fitted_version = ui.fit_text(Face::Regular, 11.0, &version_line, brand_w);
         ui.text(
@@ -1622,7 +1622,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                     content_x + 22.0,
                     card_y + 84.0,
                     my3_text(),
-                    "Apex Competitive Client 26.3",
+                    "Horizon Android Client 26.3",
                 );
                 let notice = "High-performance native Rust engine tuned for mobile. Ultra-fast FPS, low latency touch controls, built-in PvP hitmarkers, and full mod support.";
                 let mut line_y = card_y + 108.0;
@@ -1986,7 +1986,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                     content_x + 64.0,
                     y + 45.0,
                     my3_accent(),
-                    "Apex Built-in • Tap for versions, Modrinth info & screenshots",
+                    "Horizon Built-in • Tap for versions, Modrinth info & screenshots",
                 );
                 if let Some(c) = ui.clip_rect(card_rect) {
                     self.targets.push((c, Action::OpenBundledProject(id)));
@@ -2262,7 +2262,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                 x + 22.0,
                 y + 24.0,
                 my3_text(),
-                "Exit Apex?",
+                "Exit Horizon?",
             );
             let bw = (width - 52.0) * 0.5;
             button(
@@ -5249,7 +5249,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                         content_x + 42.0,
                         cy + 10.0,
                         my3_text(),
-                        "Built-in Apex PvP Soundtrack (135 BPM)",
+                        "Built-in Horizon PvP Soundtrack (135 BPM)",
                     );
                     let bgm_active = self.custom_bgm_channel.is_some();
                     ui.text(
@@ -5995,7 +5995,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                         slug: (*id).to_owned(),
                         title: (*title).to_owned(),
                         summary: (*desc).to_owned(),
-                        author: "Apex Built-in".into(),
+                        author: "Horizon Built-in".into(),
                         downloads: 0,
                         icon: None,
                         page: String::new(),
@@ -6582,21 +6582,21 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                     let _ = std::fs::remove_file(self.home.join(format!("theme/{f}")));
                 }
                 self.custom_bgm_checked = false;
-                self.catalog.status = "Reset custom audio to default built-in Apex PvP BGM.".into();
+                self.catalog.status = "Reset custom audio to default built-in Horizon PvP BGM.".into();
             }
             Some(Action::ToggleBuiltinBgm) => {
                 if let Some(ch) = self.custom_bgm_channel.take() {
                     if let Some(audio) = &mut self.audio {
                         audio.stop_custom_stream(ch);
                     }
-                    self.catalog.status = "Apex PvP BGM paused.".into();
+                    self.catalog.status = "Horizon PvP BGM paused.".into();
                 } else {
                     let audio = self.audio.get_or_insert_with(|| {
                         horizon_client::audio::Audio::new(&self.home.join(".local/horizon-client/26.3"))
                     });
                     let (samples, rate) = horizon_client::audio::apex_cyber_bgm_samples();
                     self.custom_bgm_channel = audio.play_custom_samples(samples, rate, 0.42, true);
-                    self.catalog.status = "Playing Apex PvP BGM (135 BPM).".into();
+                    self.catalog.status = "Playing Horizon PvP BGM (135 BPM).".into();
                 }
             }
             Some(Action::OpenThemeFolder) => {
@@ -7106,7 +7106,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                 horizon_client::ui_theme::set_active_theme(self.catalog.config.theme.resolve());
                 self.anim.trigger_theme_pulse();
                 self.catalog.config.save(&self.home)?;
-                self.catalog.status = "Theme reset to Apex default (Obsidian Crimson).".into();
+                self.catalog.status = "Theme reset to Horizon default.".into();
             }
             Some(Action::ToggleLiquidGlass) => {
                 self.catalog.config.theme.liquid_glass = !self.catalog.config.theme.liquid_glass;

@@ -767,11 +767,11 @@ impl Catalog {
                     horizon_client::content_files::Kind::Shaders => "SHADER",
                 };
                 let ext_tag = if name.ends_with(".hmod") {
-                    "Apex Mod (.hmod)"
+                    "Horizon Mod (.hmod)"
                 } else if name.ends_with(".jar") {
                     "Java Mod (.jar)"
                 } else if name.ends_with(".hshader") {
-                    "Apex Shader (.hshader)"
+                    "Horizon Shader (.hshader)"
                 } else if kind == horizon_client::content_files::Kind::Datapacks {
                     "Data Pack (.zip)"
                 } else if kind == horizon_client::content_files::Kind::Shaders {
@@ -881,7 +881,7 @@ impl Catalog {
                     size_bytes,
                     badge: "MOD",
                     subtitle: format!(
-                        "Apex Native Mod (.hnmod)  •  {}  •  {name}",
+                        "Horizon Native Mod (.hnmod)  •  {}  •  {name}",
                         format_file_size(size_bytes)
                     ),
                 });
@@ -1609,7 +1609,7 @@ impl Catalog {
             )
         } else if self.page == Page::Mods {
             format!(
-                "{} Apex mods available - select Install to download",
+                "{} Horizon mods available - select Install to download",
                 items.len()
             )
         } else if self.page == Page::Datapacks {

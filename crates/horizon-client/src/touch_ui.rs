@@ -175,7 +175,7 @@ pub enum InGameMenuAction {
     ToggleGameAnimations,
     /// Toggle performance stats overlay (FPS, frame time ms, CPU/GPU, frame graph).
     ToggleStats,
-    /// Toggle Apex Keystrokes & CPS Overlay (W, A, S, D, LMB, RMB with live CPS counter).
+    /// Toggle Horizon Keystrokes & CPS Overlay (W, A, S, D, LMB, RMB with live CPS counter).
     ToggleKeystrokes,
     /// Toggle 1-Tap Ultra FPS Performance Booster (reduces particles, culls entities, optimizes Vulkan LOD).
     ToggleFpsBooster,
@@ -605,7 +605,7 @@ impl TouchUi {
         (self.lmb_clicks.len(), self.rmb_clicks.len())
     }
 
-    /// Draws the sleek, high-visibility Apex PvP Keystrokes & CPS Overlay on the HUD.
+    /// Draws the sleek, high-visibility Horizon PvP Keystrokes & CPS Overlay on the HUD.
     /// Shows responsive WASD keys, Left/Right CPS counters, and status badges.
     pub fn draw_apex_hud(
         &mut self,
@@ -2846,7 +2846,7 @@ impl TouchUi {
             dx + 52.0,
             dy + 8.0,
             text_c,
-            "Apex Control Hub",
+            "Horizon Control Hub",
         );
         ui.text(
             Face::Regular,
@@ -3209,7 +3209,7 @@ impl TouchUi {
                 draw_toggle_row(
                     &mut ui,
                     body_y + 500.0,
-                    "Apex Keystrokes & CPS Overlay",
+                    "Horizon Keystrokes & CPS Overlay",
                     "Live W A S D keys, Left/Right CPS counter & spacebar",
                     Some(settings.keystrokes_overlay),
                     None,

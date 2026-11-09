@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   build-apk:
-    name: Build & Release Apex Android ARM64 APK
+    name: Build & Release Horizon Android ARM64 APK
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
@@ -48,7 +48,7 @@ jobs:
           else:
               subprocess.run(['keytool', '-genkeypair', '-keystore', str(path), '-storepass', 'android',
                               '-keypass', 'android', '-alias', 'androiddebugkey', '-keyalg', 'RSA',
-                              '-validity', '3650', '-dname', 'CN=Apex Android,O=Apex,C=US'], check=True)
+                              '-validity', '3650', '-dname', 'CN=Horizon Android,O=Horizon,C=US'], check=True)
               print('Generated fresh debug keystore.')
           PY
 
@@ -98,36 +98,42 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p dist
+          cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/horizon-arm64.apk
           cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/apex-arm64.apk
           ls -lh dist/
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: apex-arm64.apk
-          path: dist/apex-arm64.apk
+          name: horizon-arm64.apk
+          path: dist/horizon-arm64.apk
 
       - name: Publish to GitHub Releases (v0.1)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cat << 'EOF' > release_notes.md
-          ### [>] Apex (ARM64)
+          ### [>] Horizon Android (ARM64)
 
           Minecraft Java Edition 26.3 ultra-fast native Rust client for Android.
           High-performance mobile rendering, custom touch engine, instant PvP hitmarkers.
 
+          #### 🤝 Upstream Collaboration Notice:
+          - **PC Edition:** Created and maintained upstream by [Ludovic Marie (horizon-rust)](https://github.com/horizon-rust/horizon).
+          - **Android Edition:** Actively ported, optimized, and maintained for ARM64 mobile devices by **RedGlitchX** ([@tubers9999](https://github.com/tubers9999)).
+          - *„The upstream team focuses on PC development, while I take care of the Android version. Whenever PC receives updates, we sync and port them to keep the mobile experience seamless and up to date.”*
+
           #### Features:
-          - [+] In-App Datapack Downloader: Search, browse, download, and toggle Minecraft Java Datapacks directly from Modrinth with automated installation into active worlds.
+          - [+] Universal Mod & Datapack Support: Search, install, and run Minecraft Java mods and datapacks directly from Modrinth with automated world injection.
           - [+] Out-of-the-Box Mod Activation: Bundled mods (Minimap, Zoom, Recipes, SmartF3) active out-of-the-box, plus full discovery and loading of .hmod, .hnmod, .jar, and .zip content mods.
           - [+] Visual PvP Hitmarker & "Ack" Sound: Razor-sharp crimson crosshair hitmarker visual feedback paired with instant punchy audio when striking hostile mobs or players in PvP.
           - [+] Live Keystrokes & CPS Overlay: WASD + Space key visualizer with 1-second sliding-window CPS counters for Left and Right clicks.
           - [+] 1-Tap Ultra FPS Booster: Instantly toggle entity culling, cave culling, animated textures, and LOD optimizations for smooth 60-120+ FPS.
-          - [+] Built-in Apex Cyber Synthwave BGM: Looping cyberpunk soundtrack playing directly out of the box with quick Mute/Play controls.
-          - [+] Signature Apex Cyber Neon Theme: Deep crimson gradient with liquid glass sheen and glowing corner accents.
+          - [+] Built-in Horizon Cyber Synthwave BGM: Looping high-octane 135 BPM soundtrack playing directly out of the box with quick Mute/Play controls.
+          - [+] Signature Horizon Theme: Deep crimson gradient with liquid glass sheen and glowing corner accents.
           - [+] Mod Menu on Title & In-Game Screens: One-tap access to installed mods with live interactive ON/OFF toggles.
           - [+] Custom Media Pickers: Import wallpapers, videos, or audio straight from phone storage.
-          - [+] Apex Control Hub & Touch System: Pojav & Bedrock touch controls, full HUD editor, virtual mouse, customizable button shapes.
+          - [+] Horizon Control Hub & Touch System: Pojav & Bedrock touch controls, full HUD editor, virtual mouse, customizable button shapes.
           - [+] Live Performance Stats Overlay: Real-time FPS, frame timings (ms), CPU/GPU usage graph right on screen.
           - [+] Shader Pack Support: Naga/WGSL shader engine tuned for Mali & Adreno mobile GPUs.
           - [+] Native Storage Access (SAF): Android DocumentsProvider integrated seamlessly.
@@ -136,6 +142,6 @@ jobs:
           gh release delete v0.1 -y || true
           git tag -d v0.1 2>/dev/null || true
           git push origin :refs/tags/v0.1 2>/dev/null || true
-          gh release create v0.1 dist/apex-arm64.apk \
-            --title "Apex (ARM64)" \
+          gh release create v0.1 dist/horizon-arm64.apk dist/apex-arm64.apk \
+            --title "Horizon Android (ARM64)" \
             --notes-file release_notes.md

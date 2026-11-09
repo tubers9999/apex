@@ -161,7 +161,7 @@ fn init_logging() {
         } else {
             log::LevelFilter::Info
         })
-        .with_tag("Apex");
+        .with_tag("Horizon");
     if trace_gles {
         logger = logger.with_filter(
             android_logger::FilterBuilder::new()

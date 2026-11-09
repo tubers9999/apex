@@ -518,7 +518,7 @@ pub struct Settings {
     /// Performance Stats Overlay: 0 = Off, 1 = FPS & Frame Latency (Text), 2 = FPS + Frame Graph.
     #[serde(default)]
     pub stats_overlay: u8,
-    /// Apex Keystrokes & CPS Overlay (W, A, S, D, LMB, RMB with live CPS counter).
+    /// Horizon Keystrokes & CPS Overlay (W, A, S, D, LMB, RMB with live CPS counter).
     #[serde(default)]
     pub keystrokes_overlay: bool,
     /// 1-Tap Ultra FPS Performance Booster (optimizes Vulkan particles, animations and LOD).

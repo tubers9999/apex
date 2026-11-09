@@ -245,7 +245,7 @@ fn seg_dist(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) -> f32 {
 fn icon_hit(icon: Icon, u: f32, v: f32) -> bool {
     match icon {
         Icon::HorizonLogo => {
-            // Apex Chevron "A" with glowing crossbar and floating cyber prism core
+            // Horizon Chevron mark with glowing crossbar and floating cyber prism core
             let left_leg = seg_dist(u, v, 0.50, 0.14, 0.18, 0.84) <= 0.085;
             let right_leg = seg_dist(u, v, 0.50, 0.14, 0.82, 0.84) <= 0.085;
             let crossbar = seg_dist(u, v, 0.30, 0.60, 0.70, 0.60) <= 0.075;
@@ -1874,7 +1874,7 @@ impl<'a> Ui<'a> {
 
     // ---- the launcher's components & animated Horizon intro ----
 
-    /// Draws the procedural crisp vector Apex Chevron mark centered at `(cx, cy)` in `size x size` dp:
+    /// Draws the procedural crisp vector Horizon mark centered at `(cx, cy)` in `size x size` dp:
     /// razor-sharp angular chevron wings meeting at apex tip, horizontal cyber crossbar,
     /// and energetic glowing accent ring.
     pub fn draw_animated_horizon_mark(
@@ -2012,8 +2012,8 @@ impl<'a> Ui<'a> {
         }
     }
 
-    /// Renders a clean, modern, minimal animated Apex intro screen centered on the
-    /// procedural Apex Chevron mark with real initialization progress and smooth cross-dissolve.
+    /// Renders a clean, modern, minimal animated Horizon intro screen centered on the
+    /// procedural Horizon mark with real initialization progress and smooth cross-dissolve.
     pub fn draw_horizon_intro(&mut self, elapsed: f32, loading_progress: f32, status_text: &str) {
         let real_prog = loading_progress.clamp(0.0, 1.0);
         let dissolve = if real_prog >= 0.999 && elapsed > 1.15 {
@@ -2141,7 +2141,7 @@ fn wordmark(atlas: &HudAtlas, batch: &mut HudBatch) {
     let top = (ui.h - block) / 2.0;
     let cx = ui.w / 2.0;
 
-    // Crisp vector Apex mark centered symmetrically above the wordmark
+    // Crisp vector Horizon mark centered symmetrically above the wordmark
     let mark_s = (size * 0.62).clamp(28.0, 52.0);
     let mark_cy = (top - mark_s * 0.72).max(mark_s * 0.6);
     let dot_w = (mark_s * 0.12).max(3.0);
@@ -2171,7 +2171,7 @@ fn wordmark(atlas: &HudAtlas, batch: &mut HudBatch) {
     let cross_hw = mark_s * 0.15;
     ui.rounded(cx - cross_hw, cross_y - dot_w * 0.4, cross_hw * 2.0, dot_w * 0.8, dot_w * 0.4, accent);
 
-    ui.text_centered(Face::SemiBold, size, cx, top, BOOT_TEXT, "Apex");
+    ui.text_centered(Face::SemiBold, size, cx, top, BOOT_TEXT, "Horizon");
     let sub_y = top + size * 1.45 + small * 0.6;
     ui.text_centered(
         Face::Mono,
@@ -2179,7 +2179,7 @@ fn wordmark(atlas: &HudAtlas, batch: &mut HudBatch) {
         cx,
         sub_y,
         BOOT_LOG,
-        "Apex Competitive Client",
+        "Horizon Android Client",
     );
 
     // Symmetrical centered startup progress bar below the tagline
@@ -2306,7 +2306,7 @@ impl ThemePreset {
 
     pub fn subtitle(self) -> &'static str {
         match self {
-            Self::ObsidianViolet => "Signature Apex Cyber Crimson",
+            Self::ObsidianViolet => "Horizon Cyber Crimson",
             Self::CyberCyan => "Deep slate with electric cyan",
             Self::EmeraldForest => "Woodland moss with emerald mint",
             Self::CrimsonEmber => "Obsidian ruby with warm coral",

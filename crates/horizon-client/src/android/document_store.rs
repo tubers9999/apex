@@ -143,7 +143,7 @@ fn resolve(home: &Path, id: &str) -> io::Result<Document> {
 fn row(home: &Path, id: &str) -> io::Result<Value> {
     if id == ROOT {
         return Ok(
-            json!({"document_id": ROOT, "_display_name": "Apex Android",
+            json!({"document_id": ROOT, "_display_name": "Horizon Android",
             "mime_type": DIRECTORY, "flags": 0}),
         );
     }
@@ -282,7 +282,7 @@ pub fn call(home: &Path, op: &str, id: &str, arg: &str) -> io::Result<Value> {
     }
     match op {
         "roots" => Ok(json!([{"root_id": ROOT, "document_id": ROOT,
-            "title": "Apex Android", "flags": 18, "mime_types": "*/*"}])),
+            "title": "Horizon Android", "flags": 18, "mime_types": "*/*"}])),
         "document" => Ok(json!([row(home, id)?])),
         "children" => Ok(json!(children(home, id)?)),
         "child" => Ok(json!(is_child(home, id, arg))),
@@ -689,10 +689,10 @@ pub fn classify_entry_kind(path: &Path, is_dir: bool) -> String {
         .map(|s| s.to_ascii_lowercase())
         .as_deref()
     {
-        Some("hmod") => "Apex Mod (.hmod)".into(),
+        Some("hmod") => "Horizon Mod (.hmod)".into(),
         Some("hnmod") => "Native Mod (.hnmod)".into(),
         Some("jar") => "Java Mod (.jar)".into(),
-        Some("hshader") => "Apex Shader (.hshader)".into(),
+        Some("hshader") => "Horizon Shader (.hshader)".into(),
         Some("zip") => "Archive / Pack (.zip)".into(),
         Some("png") => "PNG Image (.png)".into(),
         Some("json") => "JSON Config (.json)".into(),

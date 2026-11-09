@@ -1385,7 +1385,7 @@ impl Audio {
         );
         Some(id)
     }
-    /// Plays the signature Apex PvP hitmarker sound effect ("ack") when striking hostile mobs or players.
+    /// Plays the signature Horizon PvP hitmarker sound effect ("ack") when striking hostile mobs or players.
     pub fn play_apex_hit_sound(&mut self, home: Option<&Path>) {
         self.last_hit_time = Some(std::time::Instant::now());
         if let Some(h) = home {
@@ -1566,7 +1566,7 @@ impl Sounds for Audio {
     }
 }
 
-/// Generates or returns the precomputed Apex PvP hitmarker ("ack") PCM audio waveform.
+/// Generates or returns the precomputed Horizon PvP hitmarker ("ack") PCM audio waveform.
 pub fn apex_hit_sound_samples() -> (Arc<Vec<f32>>, u32) {
     static CACHED: std::sync::OnceLock<(Arc<Vec<f32>>, u32)> = std::sync::OnceLock::new();
     CACHED
@@ -1593,7 +1593,7 @@ pub fn apex_hit_sound_samples() -> (Arc<Vec<f32>>, u32) {
         .clone()
 }
 
-/// Generates or returns the precomputed Apex High-Octane 135 BPM Minecraft PvP soundtrack.
+/// Generates or returns the precomputed Horizon High-Octane 135 BPM Minecraft PvP soundtrack.
 pub fn apex_cyber_bgm_samples() -> (Arc<Vec<f32>>, u32) {
     static CACHED: std::sync::OnceLock<(Arc<Vec<f32>>, u32)> = std::sync::OnceLock::new();
     CACHED
