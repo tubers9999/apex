@@ -1,45 +1,71 @@
-# Horizon
-
-**A native Ahead-of-Time Rust client for Minecraft Java Edition 26.3.**
-
-Horizon is an independent reimplementation of the Minecraft Java Edition engine written in Rust. It does not run desktop Java bytecode inside an emulated JVM or Dalvik wrapper; every subsystem compiles directly to native AArch64 and x86_64 machine code, rendering via Vulkan with low overhead.
-
-[Releases](https://github.com/tubers9999/apex/releases) · [Documentation](docs/) · [Upstream Repository](https://github.com/horizon-rust/horizon)
+<div align="center">
+  <img src="docs/media/brand/app-icon.png" width="96" height="96" alt="Horizon Android Logo" />
+  <h1>Horizon Android Edition</h1>
+  <p><strong>Ultra-Fast Native Ahead-of-Time Rust Client for Minecraft Java Edition 26.3</strong></p>
+  <p><em>Direct Vulkan Pipeline · Zero JVM Overhead · Sub-1.5s Cold Boots · WebAssembly Mods</em></p>
+  <br>
+  <p>
+    <a href="https://github.com/tubers9999/apex/releases">Download APK</a> · 
+    <a href="docs/">Documentation</a> · 
+    <a href="https://github.com/horizon-rust/horizon">Upstream Horizon (PC)</a>
+  </p>
+</div>
 
 ---
 
-### Unofficial Project Notice
+### Unofficial Project & Collaboration Notice
 
 Horizon is an independent community project. It is not affiliated with, endorsed by, or connected to Mojang Studios, Microsoft Corporation, or any of their subsidiaries. Minecraft is a registered trademark of Mojang Synergies AB.
 
 - **PC Edition:** Created and maintained upstream by [Ludovic Marie (horizon-rust)](https://github.com/horizon-rust/horizon).
 - **Android Port:** Maintained and optimized for ARM64 mobile hardware by [RedGlitchX (@tubers9999)](https://github.com/tubers9999).
-- For upstream synchronization, engine parity, and collaboration, visit the [official repository](https://github.com/horizon-rust/horizon).
+- *Upstream team develops for PC; mobile optimizations and ARM64 tuning are ported and synchronized for Android players.*
 
 ---
 
 ## Core Characteristics
 
-| Dimension | Horizon | Traditional JVM Wrapper |
+| Dimension | Horizon Android | Traditional JVM Wrapper |
 | :--- | :--- | :--- |
-| **Execution** | Native Rust (Ahead-of-Time) | OpenJDK HotSpot JVM |
-| **Memory Baseline** | ~140–220 MB | 1,200–2,500 MB |
-| **Cold Startup** | < 1.5 seconds | 15–35 seconds |
-| **Graphics** | Vulkan 1.1 (Naga WGSL) | OpenGL via GL4ES |
-| **Modding Sandbox** | WebAssembly (`.hmod` via Wasmtime) | Bytecode injection (Forge/Fabric unsupported) |
-| **Garbage Collection** | Deterministic RAII (0ms GC pause) | Stop-the-world JVM GC cycles |
+| **Execution Architecture** | Native Rust (Ahead-of-Time) | OpenJDK HotSpot JVM |
+| **RAM Footprint** | **~140–220 MB** | 1,200–2,500 MB |
+| **Cold Startup Duration** | **&lt; 1.5 seconds** | 15–35 seconds |
+| **Graphics Pipeline** | **Vulkan 1.1 (Naga WGSL)** | OpenGL via GL4ES |
+| **Modding Sandbox** | **WebAssembly (`.hmod` via Wasmtime)** | Bytecode injection (Forge/Fabric unsupported) |
+| **Garbage Collection** | **Deterministic RAII (0ms GC pause)** | Stop-the-world JVM GC cycles |
+| **Touch Controls** | **Pojav & Bedrock + Polygon Outlines** | Virtual Java keyboard |
 
-### Fast World Loading & Terrain Streaming
-Chunk meshing and terrain generation routines run directly on native threads without intermediate object allocation, significantly reducing stuttering during chunk boundary crossings.
+### Native Rust Ahead-of-Time Engine
+Chunk meshing and terrain streaming run on native threads without intermediate Java object allocation, eliminating Garbage Collection spikes during chunk generation.
 
-### Low Memory Footprint
-By eliminating Java object headers and heap fragmentation, the client operates comfortably within a ~160 MB memory envelope on mobile and embedded hardware.
+### Direct Vulkan 1.1 Pipeline
+Custom WGSL shaders compiled with Naga communicate directly with Qualcomm Adreno and ARM Mali GPU drivers, bypassing OpenGL translation layers.
 
-### Native Vulkan Pipeline
-Custom WGSL shaders compiled with Naga communicate directly with Qualcomm Adreno and ARM Mali GPU drivers, bypassing OpenGL compatibility translation layers.
-
-### WebAssembly Sandboxed Mods
+### WebAssembly Sandboxed Modding (.hmod)
 Mod extensions compile to WebAssembly (`.hmod`) and run in a deterministic, memory-safe Wasmtime sandbox with strict capability boundaries.
+
+### Zero-Latency PvP Feedback & Overlays
+- **PvP Hitmarker Synthesizer:** Zero-latency in-memory PCM audio feedback synchronized with visual crimson crosshairs upon striking targets.
+- **Keystrokes & CPS Visualizer:** Live WASD and Space overlay with a 1,000ms sliding-window frequency tracker for Left and Right click speeds.
+- **Hardware Performance Optimization:** 1-tap entity and cave occlusion culling tuned for mobile chipsets.
+
+---
+
+## Gameplay & Mobile Screenshots
+
+Authentic captures from the native Android port across touch navigation, world generation, and multiplayer:
+
+| Joystick Navigation & Crosshair Targeting | D-Pad Controls & Gesture Touch Aiming |
+| :---: | :---: |
+| ![Joystick Controls](docs/media/android/joystick-fox.png) | ![D-pad Controls](docs/media/android/dpad-river.png) |
+
+| Multiplayer Network Play (Hypixel Arcade) | Native Chunk Meshing & World Generation |
+| :---: | :---: |
+| ![Hypixel Arcade](docs/media/android/hypixel-arcade.png) | ![Snowy Landscape](docs/media/android/snow-landscape.png) |
+
+| Vulkan Atmospheric Lighting & Desert Terrain | Third-Person Perspective & Dynamic FOV |
+| :---: | :---: |
+| ![Desert Panorama](docs/media/android/desert-panorama.png) | ![Third Person](docs/media/android/third-person-desert.png) |
 
 ---
 
@@ -77,36 +103,19 @@ Horizon does not download or redistribute copyrighted Mojang assets. To build or
 
 ---
 
-## Gameplay & Mobile Screenshots
-
-Authentic captures from the native Android port across touch navigation, world generation, and multiplayer:
-
-| Joystick & Crosshair | D-Pad & Touch Aiming |
-| :---: | :---: |
-| ![Joystick Controls](docs/media/android/joystick-fox.png) | ![D-pad Controls](docs/media/android/dpad-river.png) |
-
-| Hypixel Arcade Multiplayer | Landscape World Generation |
-| :---: | :---: |
-| ![Hypixel Arcade](docs/media/android/hypixel-arcade.png) | ![Snowy Landscape](docs/media/android/snow-landscape.png) |
-
-| Desert Panorama | Third-Person View |
-| :---: | :---: |
-| ![Desert Panorama](docs/media/android/desert-panorama.png) | ![Third Person](docs/media/android/third-person-desert.png) |
-
----
-
 <details>
 <summary><strong>Versiunea în limba română (Romanian version)</strong></summary>
 
 <br>
 
-# Horizon
+<div align="center">
+  <img src="docs/media/brand/app-icon.png" width="96" height="96" alt="Horizon Android Logo" />
+  <h1>Horizon Ediția Android</h1>
+  <p><strong>Client nativ Ahead-of-Time în Rust pentru Minecraft Java Edition 26.3</strong></p>
+  <p><em>Pipeline Vulkan direct · Fără overhead JVM · Pornire în sub 1.5 secunde · Moduri WebAssembly</em></p>
+</div>
 
-**Un client nativ Ahead-of-Time în Rust pentru Minecraft Java Edition 26.3.**
-
-Horizon este o reimplementare independentă a motorului Minecraft Java Edition scrisă în Rust. Nu rulează bytecode Java printr-un emulator JVM sau Dalvik; fiecare subsistem este compilat direct în cod mașină nativ AArch64 și x86_64, cu randare directă în Vulkan.
-
-### Notă privind caracterul neoficial
+### Notă privind caracterul neoficial și colaborarea
 
 Horizon este un proiect comunitar independent. Nu este afiliat, aprobat sau asociat cu Mojang Studios, Microsoft Corporation sau oricare dintre filialele acestora. Minecraft este o marcă înregistrată a Mojang Synergies AB.
 
@@ -118,8 +127,10 @@ Horizon este un proiect comunitar independent. Nu este afiliat, aprobat sau asoc
 
 - **Execuție nativă în Rust:** Fără dependențe de mașina virtuală Java, eliminând ciclurile de pauză Garbage Collector.
 - **Consum redus de memorie:** Rulează stabil într-o amprentă de ~140–220 MB RAM.
-- **Randare prin Vulkan:** Pipeline direct WGSL/Naga optimizat pentru plăcile grafice mobile Qualcomm Adreno și ARM Mali.
+- **Randare prin Vulkan 1.1:** Pipeline direct WGSL/Naga optimizat pentru GPU-urile mobile Qualcomm Adreno și ARM Mali.
 - **Moduri sigure în WebAssembly (`.hmod`):** Extensii izolate într-un sandbox Wasmtime cu memorie deterministă. Modurile clasice Forge/Fabric nu sunt suportate.
+- **Feedback PvP & Keystrokes:** Semnal acustic și vizual instantaneu la lovituri în PvP, afișaj Keystrokes WASD și contor CPS.
+- **Comenzi tactile avansate:** Presets Pojav și Bedrock, butoane poligonale configurabile și mouse virtual.
 
 ### Compatibilitate
 

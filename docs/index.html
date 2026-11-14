@@ -3,39 +3,37 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Horizon · Native Rust Minecraft Java 26.3 Client</title>
+  <title>Horizon · Ultra-Fast Native Rust Minecraft Java 26.3 Client</title>
   <style>
     :root {
-      --bg: #0d0e12;
-      --surface: #15171e;
-      --surface-raised: #1c1f29;
-      --surface-hover: #242835;
-      --border: #282c3a;
-      --border-subtle: #1e222e;
-      --text: #ecedf3;
-      --text-secondary: #9aa0b2;
-      --text-muted: #676d80;
-      --accent: #d97736;
-      --accent-hover: #c46424;
-      --accent-subtle: rgba(217, 119, 54, 0.12);
+      --bg: #090b10;
+      --surface: #10131a;
+      --surface-raised: #161b24;
+      --surface-hover: #1f2533;
+      --border: #222736;
+      --border-subtle: #171b26;
+      --text: #f0f3fa;
+      --text-secondary: #9aa1b5;
+      --text-muted: #5e667d;
+      --accent: #f51c48;
+      --accent-glow: rgba(245, 28, 72, 0.22);
+      --accent-hover: #ff2a54;
+      --accent-subtle: rgba(245, 28, 72, 0.10);
+      --flame: #ff8c28;
       --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
       --space-1: 8px;
       --space-2: 16px;
       --space-3: 24px;
       --space-4: 32px;
       --space-6: 48px;
       --space-8: 64px;
-      --radius-sm: 4px;
-      --radius-md: 8px;
-      --radius-lg: 12px;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       background-color: var(--bg);
@@ -44,20 +42,28 @@
       font-size: 15px;
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
-      padding: 0;
+      overflow-x: hidden;
+    }
+
+    /* Ambient glow banner line */
+    .top-ambient-bar {
+      height: 2px;
+      background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, var(--flame) 80%, transparent 100%);
+      width: 100%;
     }
 
     /* Navigation */
     header {
       border-bottom: 1px solid var(--border-subtle);
-      background: var(--surface);
+      background: rgba(16, 19, 26, 0.92);
+      backdrop-filter: blur(12px);
       position: sticky;
       top: 0;
       z-index: 100;
     }
 
     .nav-inner {
-      max-width: 1120px;
+      max-width: 1140px;
       margin: 0 auto;
       padding: var(--space-2) var(--space-3);
       display: flex;
@@ -68,19 +74,20 @@
     .brand {
       display: flex;
       align-items: center;
-      gap: var(--space-1);
-      font-weight: 600;
-      font-size: 16px;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 17px;
       letter-spacing: -0.01em;
       color: var(--text);
       text-decoration: none;
     }
 
-    .brand-mark {
-      width: 20px;
-      height: 20px;
-      background: var(--accent);
-      border-radius: 3px;
+    .brand-logo-img {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      object-fit: cover;
+      box-shadow: 0 0 12px var(--accent-glow);
     }
 
     .nav-actions {
@@ -101,16 +108,18 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      transition: all 0.15s ease;
     }
 
     .lang-toggle:hover {
       background: var(--surface-hover);
       color: var(--text);
+      border-color: var(--accent);
     }
 
     .lang-toggle span.active {
       color: var(--accent);
-      font-weight: 600;
+      font-weight: 700;
     }
 
     .btn-github {
@@ -119,19 +128,20 @@
       color: var(--text);
       font-size: 13px;
       font-weight: 500;
-      padding: 6px 14px;
+      padding: 7px 14px;
       border-radius: var(--radius-sm);
       text-decoration: none;
-      transition: background 0.15s ease;
+      transition: all 0.15s ease;
     }
 
     .btn-github:hover {
       background: var(--surface-hover);
+      border-color: var(--text-muted);
     }
 
     /* Container */
     .container {
-      max-width: 1120px;
+      max-width: 1140px;
       margin: 0 auto;
       padding: var(--space-8) var(--space-3);
     }
@@ -139,13 +149,13 @@
     /* Hero */
     .hero {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1.1fr 0.9fr;
       gap: var(--space-6);
       align-items: center;
       margin-bottom: var(--space-8);
     }
 
-    @media (max-width: 860px) {
+    @media (max-width: 900px) {
       .hero {
         grid-template-columns: 1fr;
         gap: var(--space-4);
@@ -162,23 +172,35 @@
       align-self: flex-start;
       font-family: var(--font-mono);
       font-size: 12px;
+      font-weight: 600;
       color: var(--accent);
       background: var(--accent-subtle);
-      border: 1px solid rgba(217, 119, 54, 0.25);
-      padding: 4px 10px;
-      border-radius: var(--radius-sm);
+      border: 1px solid rgba(245, 28, 72, 0.35);
+      padding: 5px 12px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pill-pulse {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
     }
 
     h1 {
-      font-size: 38px;
-      font-weight: 600;
+      font-size: 44px;
+      font-weight: 700;
       line-height: 1.15;
-      letter-spacing: -0.02em;
+      letter-spacing: -0.03em;
       color: var(--text);
     }
 
     .hero-desc {
-      font-size: 16px;
+      font-size: 16.5px;
       color: var(--text-secondary);
       line-height: 1.6;
     }
@@ -190,53 +212,57 @@
     }
 
     .btn-primary {
-      background: var(--accent);
+      background: linear-gradient(135deg, var(--accent) 0%, #d8153c 100%);
       color: #fff;
       font-size: 14px;
-      font-weight: 500;
-      padding: 10px 18px;
+      font-weight: 600;
+      padding: 12px 22px;
       border-radius: var(--radius-sm);
       text-decoration: none;
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      transition: background 0.15s ease;
+      gap: 8px;
+      box-shadow: 0 4px 16px var(--accent-glow);
+      transition: all 0.2s ease;
     }
 
     .btn-primary:hover {
-      background: var(--accent-hover);
+      background: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent) 100%);
+      transform: translateY(-1px);
     }
 
     .btn-secondary {
-      background: transparent;
+      background: var(--surface-raised);
       border: 1px solid var(--border);
       color: var(--text);
       font-size: 14px;
       font-weight: 500;
-      padding: 10px 18px;
+      padding: 12px 20px;
       border-radius: var(--radius-sm);
       text-decoration: none;
       display: inline-flex;
       align-items: center;
-      justify-content: center;
+      transition: all 0.15s ease;
     }
 
     .btn-secondary:hover {
-      background: var(--surface-raised);
+      background: var(--surface-hover);
+      border-color: var(--text-muted);
     }
 
-    /* Launcher Preview Panel */
+    /* Launcher Preview Window */
     .launcher-frame {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius-md);
+      border-radius: var(--radius-lg);
       overflow: hidden;
       display: flex;
       flex-direction: column;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(245, 28, 72, 0.15);
     }
 
     .frame-bar {
-      height: 36px;
+      height: 38px;
       background: var(--surface-raised);
       border-bottom: 1px solid var(--border);
       display: flex;
@@ -267,6 +293,35 @@
       gap: var(--space-2);
     }
 
+    .launcher-header-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+    }
+
+    .launcher-header-card img {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+
+    .launcher-header-info h4 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .launcher-header-info span {
+      font-size: 12px;
+      color: var(--accent);
+      font-family: var(--font-mono);
+    }
+
     .field-group {
       display: flex;
       flex-direction: column;
@@ -274,20 +329,19 @@
     }
 
     .field-label {
-      font-size: 12px;
+      font-size: 11.5px;
       color: var(--text-secondary);
-      font-weight: 500;
+      font-weight: 600;
+      letter-spacing: 0.02em;
     }
 
     .select-box {
       background: var(--surface-raised);
       border: 1px solid var(--border);
       color: var(--text);
-      padding: 8px 12px;
+      padding: 10px 14px;
       border-radius: var(--radius-sm);
-      font-size: 13px;
-      font-family: var(--font-sans);
-      outline: none;
+      font-size: 13.5px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -296,13 +350,15 @@
     .version-tag {
       font-family: var(--font-mono);
       font-size: 11px;
-      background: var(--border-subtle);
-      color: var(--text-secondary);
-      padding: 2px 6px;
-      border-radius: 2px;
+      background: rgba(245, 28, 72, 0.15);
+      border: 1px solid rgba(245, 28, 72, 0.3);
+      color: var(--accent);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 600;
     }
 
-    .status-panel {
+    .telemetry-grid {
       background: var(--bg);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-sm);
@@ -313,30 +369,24 @@
       text-align: left;
     }
 
-    .stat-item {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .stat-num {
+    .tele-num {
       font-family: var(--font-mono);
-      font-size: 18px;
-      font-weight: 600;
+      font-size: 19px;
+      font-weight: 700;
       color: var(--text);
     }
 
-    .stat-label {
+    .tele-label {
       font-size: 11px;
       color: var(--text-muted);
     }
 
     .status-note {
       font-size: 12px;
-      color: var(--text-muted);
+      color: var(--text-secondary);
       display: flex;
       align-items: center;
       gap: 8px;
-      padding-top: 4px;
     }
 
     .status-indicator {
@@ -344,23 +394,25 @@
       height: 8px;
       border-radius: 50%;
       background: #3bb273;
+      box-shadow: 0 0 6px rgba(59, 178, 115, 0.6);
     }
 
-    /* Core Architecture Section */
+    /* Section Headers */
     .section-title {
-      font-size: 22px;
-      font-weight: 600;
-      letter-spacing: -0.01em;
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
       margin-bottom: var(--space-1);
     }
 
     .section-desc {
       color: var(--text-secondary);
-      font-size: 14px;
+      font-size: 14.5px;
       margin-bottom: var(--space-4);
-      max-width: 600px;
+      max-width: 650px;
     }
 
+    /* Features Grid */
     .features-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -369,9 +421,7 @@
     }
 
     @media (max-width: 860px) {
-      .features-grid {
-        grid-template-columns: 1fr;
-      }
+      .features-grid { grid-template-columns: 1fr; }
     }
 
     .card {
@@ -382,25 +432,31 @@
       display: flex;
       flex-direction: column;
       gap: var(--space-1);
+      transition: all 0.2s ease;
+    }
+
+    .card:hover {
+      border-color: rgba(245, 28, 72, 0.4);
+      transform: translateY(-2px);
     }
 
     .card-meta {
       font-family: var(--font-mono);
       font-size: 12px;
+      font-weight: 600;
       color: var(--accent);
-      margin-bottom: 4px;
     }
 
     .card h3 {
-      font-size: 16px;
-      font-weight: 600;
+      font-size: 17px;
+      font-weight: 700;
       color: var(--text);
     }
 
     .card p {
       font-size: 13.5px;
       color: var(--text-secondary);
-      line-height: 1.5;
+      line-height: 1.55;
     }
 
     /* Screenshots Gallery */
@@ -412,9 +468,7 @@
     }
 
     @media (max-width: 720px) {
-      .gallery-grid {
-        grid-template-columns: 1fr;
-      }
+      .gallery-grid { grid-template-columns: 1fr; }
     }
 
     .gallery-card {
@@ -424,6 +478,12 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
+      transition: all 0.2s ease;
+    }
+
+    .gallery-card:hover {
+      border-color: rgba(245, 28, 72, 0.35);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4);
     }
 
     .gallery-card img {
@@ -434,19 +494,30 @@
     }
 
     .gallery-caption {
-      padding: 10px 14px;
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--text-secondary);
+      padding: 12px 16px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text);
       background: var(--surface-raised);
       border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
-    /* Verification & Setup */
+    .gallery-caption::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    /* Setup Section */
     .setup-section {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius-md);
+      border-radius: var(--radius-lg);
       padding: var(--space-4);
       margin-bottom: var(--space-8);
     }
@@ -460,14 +531,14 @@
 
     .step-row {
       display: grid;
-      grid-template-columns: 32px 1fr;
+      grid-template-columns: 36px 1fr;
       gap: var(--space-2);
       align-items: start;
     }
 
     .step-num {
-      width: 28px;
-      height: 28px;
+      width: 32px;
+      height: 32px;
       border-radius: 50%;
       background: var(--surface-raised);
       border: 1px solid var(--border);
@@ -475,19 +546,19 @@
       align-items: center;
       justify-content: center;
       font-family: var(--font-mono);
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--accent);
     }
 
     .step-content h4 {
-      font-size: 15px;
-      font-weight: 600;
-      margin-bottom: 2px;
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 4px;
     }
 
     .step-content p {
-      font-size: 13.5px;
+      font-size: 14px;
       color: var(--text-secondary);
     }
 
@@ -495,18 +566,19 @@
       background: var(--bg);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-sm);
-      padding: 8px 12px;
+      padding: 10px 14px;
       font-family: var(--font-mono);
-      font-size: 12.5px;
-      color: var(--text);
-      margin-top: 6px;
+      font-size: 13px;
+      color: #ff9fb4;
+      margin-top: 8px;
       display: inline-block;
     }
 
-    /* Disclaimer / Footer */
+    /* Disclaimer / Notice */
     .disclaimer-box {
       border: 1px solid var(--border-subtle);
       background: var(--surface);
+      border-left: 3px solid var(--accent);
       border-radius: var(--radius-sm);
       padding: var(--space-3);
       font-size: 13px;
@@ -523,7 +595,8 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      flex-wrap: gap;
+      flex-wrap: wrap;
+      gap: 16px;
     }
 
     footer a {
@@ -532,19 +605,21 @@
     }
 
     footer a:hover {
-      color: var(--text);
+      color: var(--accent);
       text-decoration: underline;
     }
   </style>
 </head>
 <body>
 
+  <div class="top-ambient-bar"></div>
+
   <!-- Navigation -->
   <header>
     <div class="nav-inner">
       <a href="#" class="brand">
-        <div class="brand-mark"></div>
-        <span>Horizon</span>
+        <img src="media/brand/app-icon.png" alt="Horizon Logo" class="brand-logo-img">
+        <span>Horizon Android</span>
       </a>
       <div class="nav-actions">
         <button id="langToggle" class="lang-toggle" aria-label="Toggle Language">
@@ -552,7 +627,7 @@
           <span>/</span>
           <span id="labelRo">RO</span>
         </button>
-        <a href="https://github.com/horizon-rust/horizon" class="btn-github" target="_blank" rel="noopener">Upstream Repository</a>
+        <a href="https://github.com/horizon-rust/horizon" class="btn-github" target="_blank" rel="noopener">Upstream Horizon (PC)</a>
       </div>
     </div>
   </header>
@@ -562,14 +637,17 @@
     <!-- Hero Section -->
     <section class="hero">
       <div class="hero-content">
-        <div class="pill-tag" id="heroPill">Minecraft Java Edition 26.3 · Rust</div>
-        <h1 id="heroTitle">A native Rust client for Minecraft Java.</h1>
+        <div class="pill-tag">
+          <div class="pill-pulse"></div>
+          <span id="heroPill">Minecraft Java 26.3 · Ahead-of-Time Rust</span>
+        </div>
+        <h1 id="heroTitle">Extreme performance. Native Vulkan. Built in pure Rust.</h1>
         <p class="hero-desc" id="heroDesc">
-          Horizon is an independent client and engine implementation written in Ahead-of-Time Rust. It replaces the Java Virtual Machine runtime with native execution, Vulkan rendering, and sandboxed WebAssembly mods.
+          Horizon is the dedicated ARM64 mobile edition of the Horizon engine. Compiling directly to native AArch64 machine code with zero JVM overhead, direct Vulkan graphics, and sub-1.5s cold boots.
         </p>
         <div class="hero-buttons">
-          <a href="#setup" class="btn-primary" id="btnGetStarted">Getting Started</a>
-          <a href="https://github.com/tubers9999/apex" class="btn-secondary" id="btnSource">View Source</a>
+          <a href="#setup" class="btn-primary" id="btnGetStarted">Download & Setup</a>
+          <a href="https://github.com/tubers9999/apex" class="btn-secondary" id="btnSource">GitHub Repository</a>
         </div>
       </div>
 
@@ -581,10 +659,18 @@
             <div class="frame-dot"></div>
             <div class="frame-dot"></div>
           </div>
-          <span>horizon-launcher 26.3</span>
-          <span>ARM64</span>
+          <span>Horizon Client 26.3</span>
+          <span style="color:var(--accent); font-weight:600;">ARM64 Native</span>
         </div>
         <div class="launcher-body">
+          <div class="launcher-header-card">
+            <img src="media/brand/app-icon.png" alt="Horizon Icon">
+            <div class="launcher-header-info">
+              <h4>Horizon Android Client</h4>
+              <span>Cyber Crimson Theme · AOT Mode</span>
+            </div>
+          </div>
+
           <div class="field-group">
             <label class="field-label" id="lblEngineTarget">Engine Target</label>
             <div class="select-box">
@@ -596,23 +682,23 @@
           <div class="field-group">
             <label class="field-label" id="lblExecutionBackend">Execution Backend</label>
             <div class="select-box">
-              <span>Native AOT (aarch64 / x86_64)</span>
-              <span class="version-tag">Vulkan 1.1</span>
+              <span>Native AArch64 Ahead-of-Time</span>
+              <span class="version-tag">Vulkan 1.1+</span>
             </div>
           </div>
 
-          <div class="status-panel">
-            <div class="stat-item">
-              <div class="stat-num">~160 MB</div>
-              <div class="stat-label" id="lblMemUse">Memory use</div>
+          <div class="telemetry-grid">
+            <div>
+              <div class="tele-num">~160 MB</div>
+              <div class="tele-label" id="lblMemUse">RAM Usage</div>
             </div>
-            <div class="stat-item">
-              <div class="stat-num">&lt; 1.5 s</div>
-              <div class="stat-label" id="lblColdBoot">Cold start</div>
+            <div>
+              <div class="tele-num">&lt; 1.5 s</div>
+              <div class="tele-label" id="lblColdBoot">Cold Boot</div>
             </div>
-            <div class="stat-item">
-              <div class="stat-num">0 ms</div>
-              <div class="stat-label" id="lblJvmOverhead">JVM overhead</div>
+            <div>
+              <div class="tele-num">0 ms</div>
+              <div class="tele-label" id="lblJvmOverhead">JVM GC Pauses</div>
             </div>
           </div>
 
@@ -627,25 +713,43 @@
     <!-- Core Characteristics -->
     <section>
       <h2 class="section-title" id="featuresTitle">Engine Characteristics</h2>
-      <p class="section-desc" id="featuresDesc">Horizon does not emulate or wrap desktop Java jars. Every component is compiled directly to native machine code.</p>
+      <p class="section-desc" id="featuresDesc">Horizon does not emulate or wrap desktop Java jars. Every subsystem runs directly on the device's bare metal.</p>
 
       <div class="features-grid">
         <div class="card">
           <div class="card-meta">01 / ARCHITECTURE</div>
-          <h3 id="card1Title">Native Rust Execution</h3>
-          <p id="card1Desc">Built completely in Rust with zero runtime JVM or Dalvik dependencies. Drastically lowers memory allocation and eliminates Garbage Collection pauses during chunk generation.</p>
+          <h3 id="card1Title">Native Rust Engine</h3>
+          <p id="card1Desc">Built from scratch in pure Ahead-of-Time Rust. Operates with deterministic RAII memory management, reducing RAM consumption to ~160 MB and eliminating JVM Garbage Collection micro-stutters.</p>
         </div>
 
         <div class="card">
           <div class="card-meta">02 / RENDERING</div>
-          <h3 id="card2Title">Direct Vulkan Pipeline</h3>
-          <p id="card2Desc">Custom WGSL shader translation via Naga. Directly addresses Qualcomm Adreno and ARM Mali GPUs on mobile hardware with low-overhead draw calls.</p>
+          <h3 id="card2Title">Vulkan 1.1 Pipeline</h3>
+          <p id="card2Desc">Custom WGSL shader translation via Naga tuned for Qualcomm Adreno and ARM Mali GPUs. Direct draw calls without intermediate OpenGL translation overhead.</p>
         </div>
 
         <div class="card">
-          <div class="card-meta">03 / EXTENSIBILITY</div>
+          <div class="card-meta">03 / EXTENSIONS</div>
           <h3 id="card3Title">WebAssembly Mods (.hmod)</h3>
-          <p id="card3Desc">Mod extensions run within an isolated Wasmtime sandbox with deterministic memory bounds. Traditional Java bytecode loaders (Forge, Fabric) are not supported.</p>
+          <p id="card3Desc">Mod extensions execute in an isolated Wasmtime sandbox with strict memory safety boundaries. Native performance with guaranteed stability.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-meta">04 / COMPETITIVE</div>
+          <h3 id="card4Title">PvP Hitmarker & Feedback</h3>
+          <p id="card4Desc">Zero-latency in-memory PCM audio synthesizer playing an instant punchy feedback cue paired with razor-sharp crimson crosshairs when striking targets.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-meta">05 / OVERLAYS</div>
+          <h3 id="card5Title">Keystrokes & CPS Telemetry</h3>
+          <p id="card5Desc">Live on-screen WASD and Space key visualizer with a 1,000ms sliding-window frequency tracker for Left and Right click speeds.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-meta">06 / CONTROLS</div>
+          <h3 id="card6Title">Dual-Mode Touch Engine</h3>
+          <p id="card6Desc">Pojav & Bedrock touch layouts, polygon button outlines (Hexagon, Octagon, Circle), full on-screen HUD editor, and virtual mouse.</p>
         </div>
       </div>
     </section>
@@ -657,20 +761,28 @@
 
       <div class="gallery-grid">
         <div class="gallery-card">
-          <img src="media/android/joystick-fox.png" alt="Joystick and Crosshair Targeting" loading="lazy">
+          <img src="media/android/joystick-fox.png" alt="Joystick Navigation & Crosshair Targeting" loading="lazy">
           <div class="gallery-caption" id="cap1">Joystick Navigation & Crosshair Targeting</div>
         </div>
         <div class="gallery-card">
-          <img src="media/android/dpad-river.png" alt="D-Pad Navigation and Touch Aiming" loading="lazy">
+          <img src="media/android/dpad-river.png" alt="D-Pad Controls & Gesture Touch Aiming" loading="lazy">
           <div class="gallery-caption" id="cap2">D-Pad Controls & Gesture Touch Aiming</div>
         </div>
         <div class="gallery-card">
-          <img src="media/android/hypixel-arcade.png" alt="Multiplayer Server on Hypixel Arcade" loading="lazy">
+          <img src="media/android/hypixel-arcade.png" alt="Multiplayer Network Play on Hypixel" loading="lazy">
           <div class="gallery-caption" id="cap3">Multiplayer Network Play (Hypixel Arcade)</div>
         </div>
         <div class="gallery-card">
-          <img src="media/android/snow-landscape.png" alt="Landscape World Generation" loading="lazy">
+          <img src="media/android/snow-landscape.png" alt="Native Chunk Meshing & World Generation" loading="lazy">
           <div class="gallery-caption" id="cap4">Native Chunk Meshing & World Generation</div>
+        </div>
+        <div class="gallery-card">
+          <img src="media/android/desert-panorama.png" alt="Desert Biome Terrain Rendering" loading="lazy">
+          <div class="gallery-caption" id="cap5">Vulkan Atmospheric Lighting & Terrain</div>
+        </div>
+        <div class="gallery-card">
+          <img src="media/android/third-person-desert.png" alt="Third Person Perspective" loading="lazy">
+          <div class="gallery-caption" id="cap6">Third-Person View & Dynamic FOV</div>
         </div>
       </div>
     </section>
@@ -712,12 +824,12 @@
     <!-- Upstream Partnership & Disclaimer -->
     <div class="disclaimer-box" id="disclaimerBox">
       <strong>Notice & Affiliation:</strong> Horizon is an independent community project and is not affiliated with, endorsed by, or associated with Mojang Studios, Microsoft Corporation, or any of their subsidiaries. Minecraft is a registered trademark of Mojang Synergies AB.<br><br>
-      The PC edition is maintained upstream by <a href="https://github.com/horizon-rust/horizon" style="color:var(--text); text-decoration:underline;">Ludovic Marie (horizon-rust)</a>. The Android mobile port is maintained by <a href="https://github.com/tubers9999" style="color:var(--text); text-decoration:underline;">RedGlitchX (@tubers9999)</a>. For questions regarding upstream synchronization or collaboration, refer to the official repositories.
+      The PC edition is maintained upstream by <a href="https://github.com/horizon-rust/horizon" style="color:var(--text); text-decoration:underline;">Ludovic Marie (horizon-rust)</a>. The Android mobile port is maintained by <a href="https://github.com/tubers9999" style="color:var(--text); text-decoration:underline;">RedGlitchX (@tubers9999)</a>. Whenever PC updates land, we synchronize and adapt them for ARM64 mobile devices.
     </div>
 
     <!-- Footer -->
     <footer>
-      <div>Horizon Project · Target version: Minecraft Java Edition 26.3</div>
+      <div>Horizon Android · Minecraft Java Edition 26.3 · Pure Rust</div>
       <div style="display:flex; gap:16px;">
         <a href="https://github.com/horizon-rust/horizon">Upstream Horizon (PC)</a>
         <a href="https://github.com/tubers9999/apex">Horizon Android Repo</a>
@@ -730,25 +842,39 @@
   <script>
     const translations = {
       en: {
-        pill: "Minecraft Java Edition 26.3 · Rust",
-        title: "A native Rust client for Minecraft Java.",
-        desc: "Horizon is an independent client and engine implementation written in Ahead-of-Time Rust. It replaces the Java Virtual Machine runtime with native execution, Vulkan rendering, and sandboxed WebAssembly mods.",
-        getStarted: "Getting Started",
-        source: "View Source",
+        pill: "Minecraft Java 26.3 · Ahead-of-Time Rust",
+        title: "Extreme performance. Native Vulkan. Built in pure Rust.",
+        desc: "Horizon is the dedicated ARM64 mobile edition of the Horizon engine. Compiling directly to native AArch64 machine code with zero JVM overhead, direct Vulkan graphics, and sub-1.5s cold boots.",
+        getStarted: "Download & Setup",
+        source: "GitHub Repository",
         engineTarget: "Engine Target",
         executionBackend: "Execution Backend",
-        memUse: "Memory use",
-        coldBoot: "Cold start",
-        jvmOverhead: "JVM overhead",
+        memUse: "RAM Usage",
+        coldBoot: "Cold Boot",
+        jvmOverhead: "JVM GC Pauses",
         legitCheck: "Validated against official Minecraft Java Edition 26.3 assets",
         featuresTitle: "Engine Characteristics",
-        featuresDesc: "Horizon does not emulate or wrap desktop Java jars. Every component is compiled directly to native machine code.",
-        card1Title: "Native Rust Execution",
-        card1Desc: "Built completely in Rust with zero runtime JVM or Dalvik dependencies. Drastically lowers memory allocation and eliminates Garbage Collection pauses during chunk generation.",
-        card2Title: "Direct Vulkan Pipeline",
-        card2Desc: "Custom WGSL shader translation via Naga. Directly addresses Qualcomm Adreno and ARM Mali GPUs on mobile hardware with low-overhead draw calls.",
+        featuresDesc: "Horizon does not emulate or wrap desktop Java jars. Every subsystem runs directly on the device's bare metal.",
+        card1Title: "Native Rust Engine",
+        card1Desc: "Built from scratch in pure Ahead-of-Time Rust. Operates with deterministic RAII memory management, reducing RAM consumption to ~160 MB and eliminating JVM Garbage Collection micro-stutters.",
+        card2Title: "Vulkan 1.1 Pipeline",
+        card2Desc: "Custom WGSL shader translation via Naga tuned for Qualcomm Adreno and ARM Mali GPUs. Direct draw calls without intermediate OpenGL translation overhead.",
         card3Title: "WebAssembly Mods (.hmod)",
-        card3Desc: "Mod extensions run within an isolated Wasmtime sandbox with deterministic memory bounds. Traditional Java bytecode loaders (Forge, Fabric) are not supported.",
+        card3Desc: "Mod extensions execute in an isolated Wasmtime sandbox with strict memory safety boundaries. Native performance with guaranteed stability.",
+        card4Title: "PvP Hitmarker & Feedback",
+        card4Desc: "Zero-latency in-memory PCM audio synthesizer playing an instant punchy feedback cue paired with razor-sharp crimson crosshairs when striking targets.",
+        card5Title: "Keystrokes & CPS Telemetry",
+        card5Desc: "Live on-screen WASD and Space key visualizer with a 1,000ms sliding-window frequency tracker for Left and Right click speeds.",
+        card6Title: "Dual-Mode Touch Engine",
+        card6Desc: "Pojav & Bedrock touch layouts, polygon button outlines (Hexagon, Octagon, Circle), full on-screen HUD editor, and virtual mouse.",
+        galleryTitle: "Mobile Gameplay & Rendering",
+        galleryDesc: "Captures from actual Android hardware running native ARM64 Horizon with touch controls and Vulkan terrain pipelines.",
+        cap1: "Joystick Navigation & Crosshair Targeting",
+        cap2: "D-Pad Controls & Gesture Touch Aiming",
+        cap3: "Multiplayer Network Play (Hypixel Arcade)",
+        cap4: "Native Chunk Meshing & World Generation",
+        cap5: "Vulkan Atmospheric Lighting & Terrain",
+        cap6: "Third-Person View & Dynamic FOV",
         setupTitle: "Legitimate Setup & Preparation",
         setupDesc: "Horizon does not redistribute Mojang game files. Building or running Horizon requires your own legally purchased copy of Minecraft Java Edition 26.3.",
         step1Title: "Own Minecraft Java Edition",
@@ -756,34 +882,42 @@
         step2Title: "Prepare Engine Inputs",
         step2Desc: "Extract and verify the official client jar and asset index matching the repository's cryptographic pins:",
         step3Title: "Install ARM64 Native Package",
-        step3Desc: "Deploy the compiled release APK to your mobile device (Android 9.0+, ARM64-v8a architecture) and launch:",
-        galleryTitle: "Mobile Gameplay & Rendering",
-        galleryDesc: "Captures from actual Android hardware running native ARM64 Horizon with touch controls and Vulkan terrain pipelines.",
-        cap1: "Joystick Navigation & Crosshair Targeting",
-        cap2: "D-Pad Controls & Gesture Touch Aiming",
-        cap3: "Multiplayer Network Play (Hypixel Arcade)",
-        cap4: "Native Chunk Meshing & World Generation"
+        step3Desc: "Deploy the compiled release APK to your mobile device (Android 9.0+, ARM64-v8a architecture) and launch:"
       },
       ro: {
-        pill: "Minecraft Java Edition 26.3 · Rust",
-        title: "Un client nativ în Rust pentru Minecraft Java.",
-        desc: "Horizon este o implementare independentă de client și motor scrisă complet în Rust Ahead-of-Time. Înlocuiește mașina virtuală Java cu execuție nativă, randare Vulkan și moduri izolate în WebAssembly.",
-        getStarted: "Instrucțiuni de instalare",
-        source: "Cod Sursă",
+        pill: "Minecraft Java 26.3 · Rust Ahead-of-Time",
+        title: "Performanță extremă. Vulkan nativ. Scris integral în Rust.",
+        desc: "Horizon este ediția mobilă dedicată pentru dispozitive ARM64 a motorului Horizon. Se compilează direct în cod mașină nativ AArch64 fără overhead JVM, cu randare directă Vulkan și pornire în sub 1.5 secunde.",
+        getStarted: "Descărcare & Instalare",
+        source: "Repository GitHub",
         engineTarget: "Versiune Țintă",
         executionBackend: "Backend Execuție",
         memUse: "Memorie RAM",
         coldBoot: "Pornire la rece",
-        jvmOverhead: "Overhead JVM",
-        legitCheck: "Verificat cu fișierele oficiale Minecraft Java Edition 26.3",
+        jvmOverhead: "Pauze GC JVM",
+        legitCheck: "Validat cu fișierele oficiale Minecraft Java Edition 26.3",
         featuresTitle: "Caracteristicile Motorului",
-        featuresDesc: "Horizon nu emulează și nu rulează arhive jar desktop. Fiecare componentă este compilată direct în cod mașină nativ.",
-        card1Title: "Execuție Nativă în Rust",
-        card1Desc: "Scris integral în Rust, fără dependențe JVM sau Dalvik. Reduce drastic consumul de memorie și elimină blocajele de Garbage Collection la generarea lumii.",
-        card2Title: "Randare Directă în Vulkan",
-        card2Desc: "Translatare WGSL prin Naga. Comunică direct cu GPU-urile Qualcomm Adreno și ARM Mali de pe dispozitive mobile cu cost minim de randare.",
+        featuresDesc: "Horizon nu emulează și nu împachetează arhive jar desktop. Fiecare subsistem rulează direct pe hardware-ul nativ al dispozitivului.",
+        card1Title: "Motor Nativ în Rust",
+        card1Desc: "Scris de la zero în Rust Ahead-of-Time pur. Funcționează cu management determinist al memoriei prin RAII, reducând consumul de RAM la ~160 MB și eliminând micro-întreruperile de Garbage Collection.",
+        card2Title: "Pipeline Vulkan 1.1",
+        card2Desc: "Translatare WGSL prin Naga optimizată pentru GPU-urile Qualcomm Adreno și ARM Mali. Comenzi de randare directe fără costul de translatare OpenGL.",
         card3Title: "Moduri WebAssembly (.hmod)",
-        card3Desc: "Extensiile rulează într-un sandbox izolat Wasmtime cu memorie deterministă. Încărcătoarele clasice de bytecode Java (Forge, Fabric) nu sunt suportate.",
+        card3Desc: "Extensiile rulează într-un sandbox izolat Wasmtime cu bariere stricte de siguranță a memoriei. Performanță nativă cu stabilitate garantată.",
+        card4Title: "Hitmarker PvP & Sunet Instant",
+        card4Desc: "Sintetizator audio PCM în memorie cu latență zero, redând un semnal acustic instantaneu sincronizat cu reticulul Cyber Crimson la lovirea țintelor.",
+        card5Title: "Keystrokes & Telemetrie CPS",
+        card5Desc: "Vizualizator pe ecran al tastelor WASD și Space, cu contor de frecvență CPS pe o fereastră glisantă de 1 secundă pentru click stânga și dreapta.",
+        card6Title: "Motor Tactil Dual",
+        card6Desc: "Scheme tactile Pojav & Bedrock, forme poligonale personalizabile (Hexagon, Octogon, Cerc), editor HUD complet și mouse virtual.",
+        galleryTitle: "Capturi din Joc pe Dispozitive Mobile",
+        galleryDesc: "Capturi reale de pe dispozitive Android rulând Horizon ARM64 nativ cu comenzi tactile și pipeline Vulkan.",
+        cap1: "Navigare cu Joystick și Țintire cu Reticul",
+        cap2: "Comenzi D-Pad și Țintire Tactică prin Gesturi",
+        cap3: "Joc Multiplayer în Rețea (Hypixel Arcade)",
+        cap4: "Generare Nativă a Lumii și Îmbinare Chunk-uri",
+        cap5: "Iluminare Atmosferică și Relief în Vulkan",
+        cap6: "Vedere Third-Person și FOV Dinamic",
         setupTitle: "Pregătire și Verificare Legală",
         setupDesc: "Horizon nu redistribuie fișierele de joc Mojang. Compilarea sau rularea necesită propria copie licențiată de Minecraft Java Edition 26.3.",
         step1Title: "Deținerea Copiei Legale",
@@ -791,13 +925,7 @@
         step2Title: "Pregătirea Fișierelor de Joc",
         step2Desc: "Extrage și validează client.jar și indexul de resurse conform amprentelor criptografice din repository:",
         step3Title: "Instalarea Pachetului ARM64",
-        step3Desc: "Instalează APK-ul compilat pe telefonul sau tableta ta Android (Android 9.0+, arhitectură ARM64-v8a) și pornește:",
-        galleryTitle: "Capturi din Joc pe Dispozitive Mobile",
-        galleryDesc: "Capturi reale de pe dispozitive Android rulând Horizon ARM64 nativ cu comenzi tactile și pipeline Vulkan.",
-        cap1: "Navigare cu Joystick și Țintire cu Reticul",
-        cap2: "Comenzi D-Pad și Țintire Tactică prin Gesturi",
-        cap3: "Joc Multiplayer în Rețea (Hypixel Arcade)",
-        cap4: "Generare Nativă a Lumii și Îmbinare Chunk-uri"
+        step3Desc: "Instalează APK-ul compilat pe telefonul sau tableta ta Android (Android 9.0+, arhitectură ARM64-v8a) și pornește:"
       }
     };
 
@@ -831,12 +959,20 @@
       document.getElementById('card2Desc').textContent = t.card2Desc;
       document.getElementById('card3Title').textContent = t.card3Title;
       document.getElementById('card3Desc').textContent = t.card3Desc;
+      document.getElementById('card4Title').textContent = t.card4Title;
+      document.getElementById('card4Desc').textContent = t.card4Desc;
+      document.getElementById('card5Title').textContent = t.card5Title;
+      document.getElementById('card5Desc').textContent = t.card5Desc;
+      document.getElementById('card6Title').textContent = t.card6Title;
+      document.getElementById('card6Desc').textContent = t.card6Desc;
       document.getElementById('galleryTitle').textContent = t.galleryTitle;
       document.getElementById('galleryDesc').textContent = t.galleryDesc;
       document.getElementById('cap1').textContent = t.cap1;
       document.getElementById('cap2').textContent = t.cap2;
       document.getElementById('cap3').textContent = t.cap3;
       document.getElementById('cap4').textContent = t.cap4;
+      document.getElementById('cap5').textContent = t.cap5;
+      document.getElementById('cap6').textContent = t.cap6;
       document.getElementById('setupTitle').textContent = t.setupTitle;
       document.getElementById('setupDesc').textContent = t.setupDesc;
       document.getElementById('step1Title').textContent = t.step1Title;
