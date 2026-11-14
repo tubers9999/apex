@@ -77,6 +77,24 @@ Horizon does not download or redistribute copyrighted Mojang assets. To build or
 
 ---
 
+## Gameplay & Mobile Screenshots
+
+Authentic captures from the native Android port across touch navigation, world generation, and multiplayer:
+
+| Joystick & Crosshair | D-Pad & Touch Aiming |
+| :---: | :---: |
+| ![Joystick Controls](docs/media/android/joystick-fox.png) | ![D-pad Controls](docs/media/android/dpad-river.png) |
+
+| Hypixel Arcade Multiplayer | Landscape World Generation |
+| :---: | :---: |
+| ![Hypixel Arcade](docs/media/android/hypixel-arcade.png) | ![Snowy Landscape](docs/media/android/snow-landscape.png) |
+
+| Desert Panorama | Third-Person View |
+| :---: | :---: |
+| ![Desert Panorama](docs/media/android/desert-panorama.png) | ![Third Person](docs/media/android/third-person-desert.png) |
+
+---
+
 <details>
 <summary><strong>Versiunea în limba română (Romanian version)</strong></summary>
 

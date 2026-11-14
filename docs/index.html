@@ -403,6 +403,45 @@
       line-height: 1.5;
     }
 
+    /* Screenshots Gallery */
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--space-3);
+      margin-bottom: var(--space-8);
+    }
+
+    @media (max-width: 720px) {
+      .gallery-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .gallery-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .gallery-card img {
+      width: 100%;
+      height: auto;
+      display: block;
+      background: var(--bg);
+    }
+
+    .gallery-caption {
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      background: var(--surface-raised);
+      border-top: 1px solid var(--border);
+    }
+
     /* Verification & Setup */
     .setup-section {
       background: var(--surface);
@@ -611,6 +650,31 @@
       </div>
     </section>
 
+    <!-- Gameplay Screenshots Gallery -->
+    <section>
+      <h2 class="section-title" id="galleryTitle">Mobile Gameplay & Rendering</h2>
+      <p class="section-desc" id="galleryDesc">Captures from actual Android hardware running native ARM64 Horizon with touch controls and Vulkan terrain pipelines.</p>
+
+      <div class="gallery-grid">
+        <div class="gallery-card">
+          <img src="media/android/joystick-fox.png" alt="Joystick and Crosshair Targeting" loading="lazy">
+          <div class="gallery-caption" id="cap1">Joystick Navigation & Crosshair Targeting</div>
+        </div>
+        <div class="gallery-card">
+          <img src="media/android/dpad-river.png" alt="D-Pad Navigation and Touch Aiming" loading="lazy">
+          <div class="gallery-caption" id="cap2">D-Pad Controls & Gesture Touch Aiming</div>
+        </div>
+        <div class="gallery-card">
+          <img src="media/android/hypixel-arcade.png" alt="Multiplayer Server on Hypixel Arcade" loading="lazy">
+          <div class="gallery-caption" id="cap3">Multiplayer Network Play (Hypixel Arcade)</div>
+        </div>
+        <div class="gallery-card">
+          <img src="media/android/snow-landscape.png" alt="Landscape World Generation" loading="lazy">
+          <div class="gallery-caption" id="cap4">Native Chunk Meshing & World Generation</div>
+        </div>
+      </div>
+    </section>
+
     <!-- Verification & Setup Section -->
     <section class="setup-section" id="setup">
       <h2 class="section-title" id="setupTitle">Legitimate Setup & Preparation</h2>
@@ -692,7 +756,13 @@
         step2Title: "Prepare Engine Inputs",
         step2Desc: "Extract and verify the official client jar and asset index matching the repository's cryptographic pins:",
         step3Title: "Install ARM64 Native Package",
-        step3Desc: "Deploy the compiled release APK to your mobile device (Android 9.0+, ARM64-v8a architecture) and launch:"
+        step3Desc: "Deploy the compiled release APK to your mobile device (Android 9.0+, ARM64-v8a architecture) and launch:",
+        galleryTitle: "Mobile Gameplay & Rendering",
+        galleryDesc: "Captures from actual Android hardware running native ARM64 Horizon with touch controls and Vulkan terrain pipelines.",
+        cap1: "Joystick Navigation & Crosshair Targeting",
+        cap2: "D-Pad Controls & Gesture Touch Aiming",
+        cap3: "Multiplayer Network Play (Hypixel Arcade)",
+        cap4: "Native Chunk Meshing & World Generation"
       },
       ro: {
         pill: "Minecraft Java Edition 26.3 · Rust",
@@ -721,7 +791,13 @@
         step2Title: "Pregătirea Fișierelor de Joc",
         step2Desc: "Extrage și validează client.jar și indexul de resurse conform amprentelor criptografice din repository:",
         step3Title: "Instalarea Pachetului ARM64",
-        step3Desc: "Instalează APK-ul compilat pe telefonul sau tableta ta Android (Android 9.0+, arhitectură ARM64-v8a) și pornește:"
+        step3Desc: "Instalează APK-ul compilat pe telefonul sau tableta ta Android (Android 9.0+, arhitectură ARM64-v8a) și pornește:",
+        galleryTitle: "Capturi din Joc pe Dispozitive Mobile",
+        galleryDesc: "Capturi reale de pe dispozitive Android rulând Horizon ARM64 nativ cu comenzi tactile și pipeline Vulkan.",
+        cap1: "Navigare cu Joystick și Țintire cu Reticul",
+        cap2: "Comenzi D-Pad și Țintire Tactică prin Gesturi",
+        cap3: "Joc Multiplayer în Rețea (Hypixel Arcade)",
+        cap4: "Generare Nativă a Lumii și Îmbinare Chunk-uri"
       }
     };
 
@@ -755,6 +831,12 @@
       document.getElementById('card2Desc').textContent = t.card2Desc;
       document.getElementById('card3Title').textContent = t.card3Title;
       document.getElementById('card3Desc').textContent = t.card3Desc;
+      document.getElementById('galleryTitle').textContent = t.galleryTitle;
+      document.getElementById('galleryDesc').textContent = t.galleryDesc;
+      document.getElementById('cap1').textContent = t.cap1;
+      document.getElementById('cap2').textContent = t.cap2;
+      document.getElementById('cap3').textContent = t.cap3;
+      document.getElementById('cap4').textContent = t.cap4;
       document.getElementById('setupTitle').textContent = t.setupTitle;
       document.getElementById('setupDesc').textContent = t.setupDesc;
       document.getElementById('step1Title').textContent = t.step1Title;
