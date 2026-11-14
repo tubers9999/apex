@@ -84,8 +84,6 @@ fn pause_buttons(
     } else if links {
         // CommonDialogData.computeExternalTitle of Dialogs.SERVER_LINKS.
         v.push((x0 + 4.0, y0 + 122.0, 204.0, "menu.server_links", 11, true));
-    } else {
-        v.push((x0 + 4.0, y0 + 98.0, 204.0, "Mods", 15, true));
     }
     v.extend([
         (x0 + 4.0, y0 + 122.0 + down, 98.0, "menu.options", 1, true),

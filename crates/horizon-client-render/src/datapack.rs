@@ -128,11 +128,25 @@ pub fn discover(world: &Path) -> Vec<DataPack> {
     for e in entries.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
         let path = e.path();
-        if path.is_dir() && path.join("pack.mcmeta").exists() {
-            packs.push(DataPack {
-                id: format!("file/{name}"),
-                source: Source::Dir(path),
-            });
+        if path.is_dir() {
+            if path.join("pack.mcmeta").exists() {
+                packs.push(DataPack {
+                    id: format!("file/{name}"),
+                    source: Source::Dir(path),
+                });
+            } else if let Ok(sub_entries) = std::fs::read_dir(&path) {
+                let subs: Vec<PathBuf> = sub_entries
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.is_dir() && p.join("pack.mcmeta").exists())
+                    .collect();
+                if subs.len() == 1 {
+                    packs.push(DataPack {
+                        id: format!("file/{name}"),
+                        source: Source::Dir(subs.into_iter().next().unwrap()),
+                    });
+                }
+            }
         } else if name.ends_with(".zip")
             && let Ok(z) = Zip::open(&path)
             && z.contains("pack.mcmeta")

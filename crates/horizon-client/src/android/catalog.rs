@@ -881,7 +881,7 @@ impl Catalog {
                     size_bytes,
                     badge: "MOD",
                     subtitle: format!(
-                        "Horizon Native Mod (.hnmod)  •  {}  •  {name}",
+                        "Horizon Native Mod (.hnmod) [Roadmap / Future Update]  •  {}  •  {name}",
                         format_file_size(size_bytes)
                     ),
                 });
@@ -1717,7 +1717,7 @@ impl Catalog {
         };
 
         if source_only_mod(&project) {
-            self.status = "Native .hnmod mods are temporarily unsupported on Android. Built-in mods remain available.".into();
+            self.status = "Native .hnmod mods are in development for a future update. Standard Horizon .hmod mods are fully supported.".into();
             return;
         }
         if self.busy() || self.download_label(&project).is_some() {
@@ -2269,6 +2269,68 @@ fn install_modrinth_jar_fallback(
     Ok(1)
 }
 
+fn normalize_datapack_zip(src: &Path, dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::{Read, Write};
+    let file = std::fs::File::open(src)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    let mut root_has_mcmeta = false;
+    let mut prefix: Option<String> = None;
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i)?;
+        let name = entry.name().to_string();
+        if name == "pack.mcmeta" {
+            root_has_mcmeta = true;
+            break;
+        }
+        if name.ends_with("/pack.mcmeta") && prefix.is_none() {
+            if let Some(pos) = name.rfind("/pack.mcmeta") {
+                prefix = Some(name[..=pos].to_string());
+            }
+        }
+    }
+    if root_has_mcmeta && prefix.is_none() {
+        std::fs::copy(src, dst)?;
+        return Ok(());
+    }
+    let out_file = std::fs::File::create(dst)?;
+    let mut writer = zip::ZipWriter::new(out_file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let mut wrote_mcmeta = false;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let full_name = entry.name().to_string();
+        if entry.is_dir() {
+            continue;
+        }
+        let clean_name = if let Some(ref p) = prefix {
+            if full_name.starts_with(p) {
+                full_name.strip_prefix(p).unwrap_or(&full_name).to_string()
+            } else {
+                full_name.clone()
+            }
+        } else {
+            full_name.clone()
+        };
+        if clean_name.is_empty() {
+            continue;
+        }
+        if clean_name == "pack.mcmeta" {
+            wrote_mcmeta = true;
+        }
+        writer.start_file(clean_name, options)?;
+        let mut buf = Vec::new();
+        entry.read_to_end(&mut buf)?;
+        writer.write_all(&buf)?;
+    }
+    if !wrote_mcmeta {
+        writer.start_file("pack.mcmeta", options)?;
+        writer.write_all(br#"{"pack":{"pack_format":61,"description":"Horizon Data Pack"}}"#)?;
+    }
+    writer.finish()?;
+    Ok(())
+}
+
 fn install_datapack_to_game(
     source: &dyn Source,
     project: &Project,
@@ -2306,7 +2368,9 @@ fn install_datapack_to_game(
     let global_dir = home.join("datapacks");
     std::fs::create_dir_all(&global_dir).map_err(|e| e.to_string())?;
     let target = global_dir.join(&file_name);
-    std::fs::copy(&downloaded, &target).map_err(|e| format!("Failed to save datapack: {e}"))?;
+    if normalize_datapack_zip(&downloaded, &target).is_err() {
+        std::fs::copy(&downloaded, &target).map_err(|e| format!("Failed to save datapack: {e}"))?;
+    }
     if let Ok(saves) = std::fs::read_dir(home.join("saves")) {
         for entry in saves.flatten() {
             if entry.path().is_dir() {

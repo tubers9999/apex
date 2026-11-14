@@ -5134,7 +5134,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                         "Animated Video Background",
                     );
                     let sub = if has_bg_video {
-                        "Active: Animated Cyber Live 60 FPS Video Backdrop"
+                        "Active: Custom video background"
                     } else {
                         "Choose animated video/gif from files or toggle live video"
                     };
@@ -5237,7 +5237,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                     self.list_targets.push((btn_r, Action::OpenThemeFolder));
                 }
 
-                // 10. Built-in Apex Cyber BGM toggle
+                // 10. Background audio toggle
                 cy += 60.0;
                 if cy + 54.0 >= list_top && cy <= list_bottom {
                     ui.rounded(content_x, cy, content_w, 52.0, 12.0, my3_card_bg());
@@ -5249,7 +5249,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                         content_x + 42.0,
                         cy + 10.0,
                         my3_text(),
-                        "Built-in Horizon PvP Soundtrack (135 BPM)",
+                        "Launcher background audio",
                     );
                     let bgm_active = self.custom_bgm_channel.is_some();
                     ui.text(
@@ -5258,7 +5258,7 @@ fn draw_live_video_background(ui: &mut Ui<'_>, w: f32, h: f32, th: &horizon_clie
                         content_x + 42.0,
                         cy + 28.0,
                         if bgm_active { my3_accent() } else { my3_muted() },
-                        if bgm_active { "Playing high-octane Minecraft PvP montage soundtrack" } else { "Launcher audio muted" },
+                        if bgm_active { "Playing background audio" } else { "Launcher audio muted" },
                     );
                     let btn_r = [content_x + content_w - 114.0, cy + 9.0, 102.0, 34.0];
                     button(

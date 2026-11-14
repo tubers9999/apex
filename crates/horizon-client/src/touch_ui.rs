@@ -2495,16 +2495,11 @@ impl TouchUi {
                 if inside([cx, stats_y, cw, 46.0]) {
                     return Some(InGameMenuAction::ToggleStats);
                 }
-                let mods_y = body_y + 446.0;
-                if inside([cx, mods_y, cw, 46.0]) {
-                    self.floating_menu = false;
-                    return Some(InGameMenuAction::OpenMods);
-                }
-                let keystrokes_y = body_y + 500.0;
+                let keystrokes_y = body_y + 446.0;
                 if inside([cx, keystrokes_y, cw, 46.0]) {
                     return Some(InGameMenuAction::ToggleKeystrokes);
                 }
-                let booster_y = body_y + 554.0;
+                let booster_y = body_y + 500.0;
                 if inside([cx, booster_y, cw, 46.0]) {
                     return Some(InGameMenuAction::ToggleFpsBooster);
                 }
@@ -3201,14 +3196,6 @@ impl TouchUi {
                 draw_toggle_row(
                     &mut ui,
                     body_y + 446.0,
-                    "Mod Menu & Settings",
-                    "Configure native .hnmod, .hmod & active client mods",
-                    None,
-                    Some("Open >"),
-                );
-                draw_toggle_row(
-                    &mut ui,
-                    body_y + 500.0,
                     "Horizon Keystrokes & CPS Overlay",
                     "Live W A S D keys, Left/Right CPS counter & spacebar",
                     Some(settings.keystrokes_overlay),
@@ -3216,9 +3203,9 @@ impl TouchUi {
                 );
                 draw_toggle_row(
                     &mut ui,
-                    body_y + 554.0,
-                    "⚡ Ultra FPS Booster",
-                    "1-Tap mobile performance boost: culls entities & optimizes Vulkan LOD",
+                    body_y + 500.0,
+                    "Performance optimization",
+                    "Entity culling and Vulkan LOD tuning",
                     Some(settings.fps_booster),
                     None,
                 );

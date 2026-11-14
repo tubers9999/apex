@@ -682,15 +682,12 @@ impl Loading {
                 }
                 list.push(Installed {
                     id: id.clone(),
-                    title: format!("{id} (native)"),
-                    description: format!("Native mod: {NATIVE_DIR}/{file_name}"),
-                    problem: None,
+                    title: format!("{id} (Native - In Development)"),
+                    description: format!("Native mod (.hnmod) is in development for a future update. File: {NATIVE_DIR}/{file_name}"),
+                    problem: Some("Coming in a future update".into()),
                     dev: false,
-                    has_settings: true,
-                    native: Some(NativePage {
-                        keys: Vec::new(),
-                        buttons: Vec::new(),
-                    }),
+                    has_settings: false,
+                    native: None,
                 });
             }
         }

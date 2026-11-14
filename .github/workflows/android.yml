@@ -100,7 +100,6 @@ jobs:
         run: |
           mkdir -p dist
           cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/horizon-arm64.apk
-          cp .local/android/apk/arm64-v8a/horizon-android-public.apk dist/apex-arm64.apk
           ls -lh dist/
 
       - name: Upload Artifact
@@ -125,14 +124,13 @@ jobs:
           - *„The upstream team focuses on PC development, while I take care of the Android version. Whenever PC receives updates, we sync and port them to keep the mobile experience seamless and up to date.”*
 
           #### Features:
-          - [+] Universal Mod & Datapack Support: Search, install, and run Minecraft Java mods and datapacks directly from Modrinth with automated world injection.
-          - [+] Out-of-the-Box Mod Activation: Bundled mods (Minimap, Zoom, Recipes, SmartF3) active out-of-the-box, plus full discovery and loading of .hmod, .hnmod, .jar, and .zip content mods.
+          - [+] Universal Mod & Datapack Support: Search, install, and run Minecraft Java .hmod mods and datapacks directly from Modrinth with automated world injection.
+          - [+] Out-of-the-Box Mod Activation: Bundled mods (Minimap, Zoom, Recipes, SmartF3) active out-of-the-box, plus full discovery and loading of .hmod sandboxed mods.
           - [+] Visual PvP Hitmarker & "Ack" Sound: Razor-sharp crimson crosshair hitmarker visual feedback paired with instant punchy audio when striking hostile mobs or players in PvP.
           - [+] Live Keystrokes & CPS Overlay: WASD + Space key visualizer with 1-second sliding-window CPS counters for Left and Right clicks.
           - [+] 1-Tap Ultra FPS Booster: Instantly toggle entity culling, cave culling, animated textures, and LOD optimizations for smooth 60-120+ FPS.
           - [+] Built-in Horizon Cyber Synthwave BGM: Looping high-octane 135 BPM soundtrack playing directly out of the box with quick Mute/Play controls.
           - [+] Signature Horizon Theme: Deep crimson gradient with liquid glass sheen and glowing corner accents.
-          - [+] Mod Menu on Title & In-Game Screens: One-tap access to installed mods with live interactive ON/OFF toggles.
           - [+] Custom Media Pickers: Import wallpapers, videos, or audio straight from phone storage.
           - [+] Horizon Control Hub & Touch System: Pojav & Bedrock touch controls, full HUD editor, virtual mouse, customizable button shapes.
           - [+] Live Performance Stats Overlay: Real-time FPS, frame timings (ms), CPU/GPU usage graph right on screen.
@@ -143,6 +141,6 @@ jobs:
           gh release delete v0.1 -y || true
           git tag -d v0.1 2>/dev/null || true
           git push origin :refs/tags/v0.1 2>/dev/null || true
-          gh release create v0.1 dist/horizon-arm64.apk dist/apex-arm64.apk \
+          gh release create v0.1 dist/horizon-arm64.apk \
             --title "Horizon Android (ARM64)" \
             --notes-file release_notes.md

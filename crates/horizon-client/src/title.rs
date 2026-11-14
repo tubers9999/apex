@@ -1601,14 +1601,6 @@ impl Title {
                     ),
                     b(
                         cx - 100.0,
-                        y + 72.0,
-                        200.0,
-                        "Mods",
-                        true,
-                        8,
-                    ),
-                    b(
-                        cx - 100.0,
                         y + 96.0,
                         98.0,
                         &lang::get_or("menu.options", "Options..."),
@@ -3245,7 +3237,7 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
                 Action::None
             }
             (Mode::Main, Some(3)) => Action::Options,
-            (Mode::Main, Some(8)) => Action::Mods,
+            (Mode::Main, Some(8)) => Action::None,
             (Mode::Main, Some(7)) => Action::Accessibility,
             (Mode::Main, Some(6)) => Action::Language,
             (Mode::Select { worlds, selected }, Some(10)) => {
@@ -3520,7 +3512,18 @@ Would you like to enable the Narrator or visit the Accessibility Settings?",
             (Mode::Create { options, .. }, Some(31)) => {
                 if options.pack_dir.is_none() {
                     match crate::datapack::temp_folder() {
-                        Ok(dir) => options.pack_dir = Some(dir),
+                        Ok(dir) => {
+                            let global = std::path::Path::new("datapacks");
+                            if global.is_dir() {
+                                if let Ok(entries) = std::fs::read_dir(global) {
+                                    for entry in entries.flatten() {
+                                        let p = entry.path();
+                                        let _ = crate::datapack::copy_pack(&p, &dir);
+                                    }
+                                }
+                            }
+                            options.pack_dir = Some(dir);
+                        }
                         Err(e) => {
                             log::warn!("Horizon: no folder for data packs: {e}");
                             return Action::None;

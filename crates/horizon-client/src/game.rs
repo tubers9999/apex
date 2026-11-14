@@ -11611,6 +11611,23 @@ impl Game<'_> {
             return Ok(());
         }
         self.join_world_rest()?;
+        // Sync global datapacks into world before it opens
+        if let Ok(cwd) = std::env::current_dir() {
+            let world_dp = cwd.join("saves").join(folder).join("datapacks");
+            let global_dp = cwd.join("datapacks");
+            if global_dp.is_dir() {
+                let _ = std::fs::create_dir_all(&world_dp);
+                if let Ok(entries) = std::fs::read_dir(&global_dp) {
+                    for entry in entries.flatten() {
+                        let src = entry.path();
+                        let dst = world_dp.join(entry.file_name());
+                        if !dst.exists() {
+                            let _ = std::fs::copy(&src, &dst);
+                        }
+                    }
+                }
+            }
+        }
         // Create World's data packs, in the world before it opens.
         if let Some(dir) = create.and_then(|o| o.pack_dir.as_deref()) {
             let world = std::env::current_dir()?.join("saves").join(folder);
