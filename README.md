@@ -45,7 +45,7 @@ Custom WGSL shaders compiled with Naga communicate directly with Qualcomm Adreno
 Mod extensions compile to WebAssembly (`.hmod`) and run in a deterministic, memory-safe Wasmtime sandbox with strict capability boundaries.
 
 ### Zero-Latency PvP Feedback & Overlays
-- **PvP Hitmarker Synthesizer:** Zero-latency in-memory PCM audio feedback synchronized with visual crimson crosshairs upon striking targets.
+- **PvP Hitmarker Synthesizer:** Zero-latency in-memory PCM audio feedback synchronized with visual hitmarker feedback upon striking targets.
 - **Keystrokes & CPS Visualizer:** Live WASD and Space overlay with a 1,000ms sliding-window frequency tracker for Left and Right click speeds.
 - **Hardware Performance Optimization:** 1-tap entity and cave occlusion culling tuned for mobile chipsets.
 

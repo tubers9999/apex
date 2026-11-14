@@ -2306,7 +2306,7 @@ impl ThemePreset {
 
     pub fn subtitle(self) -> &'static str {
         match self {
-            Self::ObsidianViolet => "Horizon Cyber Crimson",
+            Self::ObsidianViolet => "Deep obsidian with Horizon violet",
             Self::CyberCyan => "Deep slate with electric cyan",
             Self::EmeraldForest => "Woodland moss with emerald mint",
             Self::CrimsonEmber => "Obsidian ruby with warm coral",
